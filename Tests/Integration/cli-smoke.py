@@ -21,8 +21,9 @@ with tempfile.TemporaryDirectory(prefix='uig-smoke-', dir='/tmp') as td:
             if service.poll() is not None:raise RuntimeError(service.stderr.read().decode())
             time.sleep(.02)
         image=str(repo/'Tests/Fixtures/smoke.svg')
-        uuid=cli('--new','--ui-type','media','--media-type','image','--path',image,'--auto-close','0.15');ids.append(uuid)
-        cli('--stack','--uuid',uuid,'--ui-type','media','--media-type','image','--path',image,'--auto-close','0.15')
+        uuid=cli('--new','--ui-type','media','--media-type','image','--path',image,'--width','420','--height','280','--auto-close','0.15');ids.append(uuid)
+        cli('--stack','--uuid',uuid,'--ui-type','media','--media-type','image','--path',image,'--width','480','--height','320','--auto-close','0.15')
+        cli('--new','--ui-type','media','--media-type','audio','--path',image,'--width','420',expected=2)
         cli('--trigger','--uuid',uuid.upper(),'--wait','--timeout','10')
         result=json.loads(cli('--dump','--uuid',uuid))
         assert result['outcome']=='completed' and len(result['steps'])==2,result

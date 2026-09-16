@@ -172,6 +172,30 @@ struct StepInspectorView: View {
                 }
             }
         }
+        if step.mediaType != "audio" {
+            Section {
+                LabeledContent("Width") {
+                    TextField("Automatic", value: $step.mediaWidth, format: .number)
+                        .labelsHidden()
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 96)
+                        .accessibilityLabel("Media window width")
+                    Text("pt").foregroundStyle(.secondary)
+                }
+                LabeledContent("Height") {
+                    TextField("Automatic", value: $step.mediaHeight, format: .number)
+                        .labelsHidden()
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 96)
+                        .accessibilityLabel("Media window height")
+                    Text("pt").foregroundStyle(.secondary)
+                }
+            } header: {
+                Text("Window size")
+            } footer: {
+                Text("Sizes use macOS points. Leave either dimension blank to size it automatically. Oversized windows are fitted to the current screen.")
+            }
+        }
     }
 
     @ViewBuilder

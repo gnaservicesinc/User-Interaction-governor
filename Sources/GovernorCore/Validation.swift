@@ -30,6 +30,8 @@ public enum DefinitionValidator {
         step.plays = try integer(options["plays"]?.last, name: "plays")
         step.forever = flags.contains("forever")
         step.autoClose = try positiveDouble(options["auto-close"]?.last, name: "auto-close")
+        step.width = try integer(options["width"]?.last, name: "width")
+        step.height = try integer(options["height"]?.last, name: "height")
         step.entryType = options["entry-type"]?.last?.lowercased()
         step.defaultValue = options["default"]?.last
         step.required = flags.contains("required")
@@ -56,6 +58,9 @@ public enum DefinitionValidator {
     public static func validate(_ step: inout StepDefinition) throws {
         func nonempty(_ value: String?, _ option: String) throws {
             guard let value, !value.isEmpty else { throw StructuredError("INVALID_ARGUMENT", "--\(option) must be nonempty") }
+        }
+        if step.uiType != .media, step.width != nil || step.height != nil {
+            throw StructuredError("INVALID_ARGUMENT", "--width and --height are valid only for image or video media")
         }
         switch step.uiType {
         case .display:
@@ -98,6 +103,11 @@ public enum DefinitionValidator {
                 throw StructuredError("INVALID_ARGUMENT", "--auto-close must be finite and positive")
             }
             if step.mediaType != "image" && step.autoClose != nil { throw StructuredError("INVALID_ARGUMENT", "--auto-close is valid only for images") }
+            if let width = step.width, width <= 0 { throw StructuredError("INVALID_ARGUMENT", "--width must be positive") }
+            if let height = step.height, height <= 0 { throw StructuredError("INVALID_ARGUMENT", "--height must be positive") }
+            if step.mediaType == "audio", step.width != nil || step.height != nil {
+                throw StructuredError("INVALID_ARGUMENT", "--width and --height are valid only for image or video media")
+            }
         case .entry:
             if step.entryType == nil { step.entryType = "text" }
             if step.entryType == "0" { step.entryType = "number" }

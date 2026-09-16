@@ -97,7 +97,7 @@ struct FlowStepCard: View {
         case .display: return [step.displayButton.isEmpty ? "OK" : step.displayButton]
         case .choice: return step.buttons
         case .file: return [step.fileMode == "save" ? "Save dialog" : "Open dialog"] + step.filters
-        case .media: return [step.mediaType.capitalized, step.mediaType == "image" ? (step.autoClose > 0 ? "\(step.autoClose.formatted())s" : "Dismiss to continue") : (step.forever ? "Looping" : "\(step.plays) play\(step.plays == 1 ? "" : "s")")]
+        case .media: return [step.mediaType.capitalized, step.mediaType == "image" ? (step.autoClose > 0 ? "\(step.autoClose.formatted())s" : "Close to continue") : (step.forever ? "Looping" : "\(step.plays) play\(step.plays == 1 ? "" : "s")")]
         case .entry: return [step.entryType == "multiline" ? "Multiple lines" : step.entryType.capitalized, step.required ? "Required" : "Optional"]
         case .confirm: return [step.confirmLabel.isEmpty ? "Continue" : step.confirmLabel, step.cancelLabel.isEmpty ? "Cancel" : step.cancelLabel]
         }

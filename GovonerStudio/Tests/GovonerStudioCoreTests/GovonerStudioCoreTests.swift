@@ -37,10 +37,16 @@ import Testing
     process.waitUntilExit()
     #expect(process.terminationStatus == 0)
 
+    let missingRuntime = FileManager.default.temporaryDirectory
+        .appendingPathComponent("missing-govoner-runtime-\(UUID().uuidString).sh").path
+    let guardURL = FileManager.default.temporaryDirectory
+        .appendingPathComponent("govoner-missing-runtime-\(UUID().uuidString).sh")
+    defer { try? FileManager.default.removeItem(at: guardURL) }
+    try Data(BashExporter.export(project, runtimePath: missingRuntime).utf8).write(to: guardURL)
     let guardProcess = Process()
     let guardError = Pipe()
     guardProcess.executableURL = URL(fileURLWithPath: "/bin/bash")
-    guardProcess.arguments = [url.path]
+    guardProcess.arguments = [guardURL.path]
     guardProcess.standardError = guardError
     try guardProcess.run()
     guardProcess.waitUntilExit()
@@ -176,6 +182,8 @@ import Testing
     file.directory = FileManager.default.temporaryDirectory.path
     var media = StudioStep.template(for: .media)
     media.mediaPath = "/tmp/preview.png"
+    media.mediaWidth = 800
+    media.mediaHeight = 450
     let steps = [
         StudioStep.template(for: .display),
         StudioStep.template(for: .choice),
@@ -188,6 +196,29 @@ import Testing
         let arguments = try step.commandArguments()
         #expect(arguments.prefix(2) == ["--ui-type", step.uiType.rawValue])
     }
+    let mediaArguments = try media.commandArguments()
+    let widthIndex = try #require(mediaArguments.firstIndex(of: "--width"))
+    let heightIndex = try #require(mediaArguments.firstIndex(of: "--height"))
+    #expect(mediaArguments[widthIndex + 1] == "800")
+    #expect(mediaArguments[heightIndex + 1] == "450")
+
+    media.mediaType = "audio"
+    #expect(!((try media.commandArguments()).contains("--width")))
+    #expect(!((try media.commandArguments()).contains("--height")))
+}
+
+@Test func projectsWithoutMediaDimensionsRemainDecodable() throws {
+    let project = StudioProject.starter
+    let data = try JSONEncoder().encode(project)
+    var object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+    var steps = try #require(object["steps"] as? [[String: Any]])
+    steps[0].removeValue(forKey: "mediaWidth")
+    steps[0].removeValue(forKey: "mediaHeight")
+    object["steps"] = steps
+    let legacy = try JSONSerialization.data(withJSONObject: object)
+    let decoded = try JSONDecoder().decode(StudioProject.self, from: legacy)
+    #expect(decoded.steps[0].mediaWidth == nil)
+    #expect(decoded.steps[0].mediaHeight == nil)
 }
 
 private func runShell(_ script: String) throws {

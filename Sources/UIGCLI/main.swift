@@ -27,7 +27,7 @@ private func fail(_ error: StructuredError, json: Bool) -> Never {
 private func validateSyntax(_ parsed: ParsedArguments) throws {
     guard let action = parsed.action else { return }
     let common = Set(["uuid", "error-format"])
-    let step = Set(["ui-type", "title", "message", "button", "mode", "directory", "filter", "filename", "media-type", "path", "volume", "plays", "auto-close", "entry-type", "default", "max-length", "min", "max", "confirm-label", "cancel-label"])
+    let step = Set(["ui-type", "title", "message", "button", "mode", "directory", "filter", "filename", "media-type", "path", "volume", "plays", "auto-close", "width", "height", "entry-type", "default", "max-length", "min", "max", "confirm-label", "cancel-label"])
     let protocolOptions = Set(["trigger-path", "shown-path", "user-finished-path", "response-path", "response-format", "exit-path", "uuid-path"])
     let duration = Set(["days", "hours", "seconds"])
     let allowed: Set<String>

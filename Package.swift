@@ -24,11 +24,15 @@ let package = Package(
             path: "Sources/CSQLite"
         ),
         .target(name: "GovernorCore", dependencies: ["CSQLite"]),
+        .target(
+            name: "UIGRendererSupport",
+            linkerSettings: [.linkedFramework("AppKit")]
+        ),
         .executableTarget(name: "UIGCLI", dependencies: ["GovernorCore"]),
         .executableTarget(name: "UIGService", dependencies: ["GovernorCore"]),
         .executableTarget(
             name: "UIGRenderer",
-            dependencies: ["GovernorCore"],
+            dependencies: ["GovernorCore", "UIGRendererSupport"],
             linkerSettings: [
                 .linkedFramework("AppKit"),
                 .linkedFramework("AVFoundation"),
@@ -54,6 +58,7 @@ let package = Package(
         .executableTarget(name: "UIFile", dependencies: ["UIWrapperSupport"]),
         .executableTarget(name: "UIMedia", dependencies: ["UIWrapperSupport"]),
         .testTarget(name: "GovernorCoreTests", dependencies: ["GovernorCore"]),
+        .testTarget(name: "UIGRendererSupportTests", dependencies: ["UIGRendererSupport"]),
         .testTarget(
             name: "GovonerStudioCoreTests",
             dependencies: ["GovonerStudioCore", "GovernorCore"],

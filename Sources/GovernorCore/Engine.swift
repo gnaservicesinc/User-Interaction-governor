@@ -567,7 +567,7 @@ public final class GovernorEngine: @unchecked Sendable {
     }
 
     private func applyUpdate(options: [String: [String]], flags: Set<String>, resets: [String], workingDirectory: String, step: inout StepDefinition) throws {
-        let supported = Set(["title", "message", "button", "mode", "directory", "filter", "filename", "media-type", "path", "volume", "plays", "auto-close", "entry-type", "default", "max-length", "min", "max", "confirm-label", "cancel-label"])
+        let supported = Set(["title", "message", "button", "mode", "directory", "filter", "filename", "media-type", "path", "volume", "plays", "auto-close", "width", "height", "entry-type", "default", "max-length", "min", "max", "confirm-label", "cancel-label"])
         if let unknown = options.keys.first(where: { !supported.contains($0) }) { throw StructuredError("INVALID_ARGUMENT", "--\(unknown) is not valid for update") }
         for reset in resets {
             switch reset {
@@ -580,6 +580,8 @@ public final class GovernorEngine: @unchecked Sendable {
             case "plays": step.plays = nil
             case "forever": step.forever = false
             case "auto-close": step.autoClose = nil
+            case "width": step.width = nil
+            case "height": step.height = nil
             case "message" where step.uiType == .entry: step.message = nil
             case "default": step.defaultValue = nil
             case "required": step.required = false
@@ -603,6 +605,8 @@ public final class GovernorEngine: @unchecked Sendable {
         if let value = options["volume"]?.last { guard let parsed = Int(value) else { throw StructuredError("INVALID_ARGUMENT", "--volume must be a whole number") }; step.volume = parsed }
         if let value = options["plays"]?.last { guard let parsed = Int(value) else { throw StructuredError("INVALID_ARGUMENT", "--plays must be a whole number") }; step.plays = parsed }
         if let value = options["auto-close"]?.last { guard let parsed = Double(value), parsed.isFinite, parsed > 0 else { throw StructuredError("INVALID_ARGUMENT", "--auto-close must be positive") }; step.autoClose = parsed }
+        if let value = options["width"]?.last { guard let parsed = Int(value) else { throw StructuredError("INVALID_ARGUMENT", "--width must be a whole number") }; step.width = parsed }
+        if let value = options["height"]?.last { guard let parsed = Int(value) else { throw StructuredError("INVALID_ARGUMENT", "--height must be a whole number") }; step.height = parsed }
         if let value = options["entry-type"]?.last { step.entryType = value.lowercased() }
         if let value = options["default"]?.last { step.defaultValue = value }
         if let value = options["max-length"]?.last { guard let parsed = Int(value) else { throw StructuredError("INVALID_ARGUMENT", "--max-length must be a whole number") }; step.maxLength = parsed }

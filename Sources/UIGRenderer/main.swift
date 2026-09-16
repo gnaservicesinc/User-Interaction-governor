@@ -4,6 +4,7 @@ import AVKit
 import Darwin
 import Foundation
 import GovernorCore
+import UIGRendererSupport
 
 if CommandLine.arguments.dropFirst() == ["--version"] {
     print("uig-renderer \(governorVersion)")
@@ -255,18 +256,11 @@ private final class StandardDialog: NSObject, NSWindowDelegate, NSTextViewDelega
             label.textColor = .secondaryLabelColor
             root.addArrangedSubview(label)
         }
-        let scroll = NSScrollView()
-        scroll.hasVerticalScroller = true
-        scroll.borderType = .noBorder
-        let message = NSTextView()
-        message.isEditable = false
-        message.isSelectable = true
-        message.drawsBackground = false
-        message.font = .preferredFont(forTextStyle: .body)
-        message.string = messageText()
+        let (scroll, message) = RendererLayout.makeScrollableTextView(
+            text: messageText(), editable: false, height: 96, border: .noBorder
+        )
         message.textContainerInset = NSSize(width: 0, height: 4)
         message.setAccessibilityLabel("Message")
-        scroll.documentView = message
         scroll.translatesAutoresizingMaskIntoConstraints = false
         scroll.heightAnchor.constraint(greaterThanOrEqualToConstant: 64).isActive = true
         scroll.heightAnchor.constraint(lessThanOrEqualToConstant: 220).isActive = true
@@ -282,15 +276,11 @@ private final class StandardDialog: NSObject, NSWindowDelegate, NSTextViewDelega
 
     private func addEntry(to root: NSStackView) {
         if step.entryType == "multiline" {
-            let scroll = NSScrollView()
-            scroll.hasVerticalScroller = true
-            scroll.borderType = .bezelBorder
-            let textView = NSTextView()
-            textView.string = step.defaultValue ?? ""
-            textView.font = .preferredFont(forTextStyle: .body)
+            let (scroll, textView) = RendererLayout.makeScrollableTextView(
+                text: step.defaultValue ?? "", editable: true, height: 120, border: .bezelBorder
+            )
             textView.delegate = self
             textView.setAccessibilityLabel("Value")
-            scroll.documentView = textView
             scroll.translatesAutoresizingMaskIntoConstraints = false
             scroll.heightAnchor.constraint(equalToConstant: 120).isActive = true
             root.addArrangedSubview(scroll)
@@ -310,13 +300,14 @@ private final class StandardDialog: NSObject, NSWindowDelegate, NSTextViewDelega
         error.isHidden = true
         error.maximumNumberOfLines = 2
         root.addArrangedSubview(error)
+        error.widthAnchor.constraint(lessThanOrEqualTo: root.widthAnchor, constant: -40).isActive = true
         errorLabel = error
     }
 
     private func makeButtons() -> NSView {
         let row = NSStackView()
         row.orientation = usesScrollableChoices ? .vertical : .horizontal
-        row.alignment = .centerY
+        row.alignment = usesScrollableChoices ? .width : .centerY
         row.distribution = .fillEqually
         row.spacing = 10
         switch step.uiType {
@@ -504,9 +495,14 @@ private final class MediaDialog: NSObject, NSWindowDelegate, @unchecked Sendable
         startAV(path)
     }
 
-    private func makeWindow(size: NSSize) -> GovernorWindow {
+    private func makeWindow(defaultSize: NSSize) -> GovernorWindow {
         let visible = NSScreen.main?.visibleFrame.size ?? NSSize(width: 1200, height: 800)
-        let fitted = NSSize(width: min(size.width, visible.width * 0.8), height: min(size.height, visible.height * 0.8))
+        let fitted = RendererLayout.fittedMediaWindowSize(
+            defaultSize: defaultSize,
+            requestedWidth: step.width,
+            requestedHeight: step.height,
+            visibleSize: visible
+        )
         let window = GovernorWindow(contentRect: NSRect(origin: .zero, size: fitted), styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
         window.title = step.title ?? URL(fileURLWithPath: step.path ?? "Media").lastPathComponent
         window.delegate = self
@@ -520,9 +516,10 @@ private final class MediaDialog: NSObject, NSWindowDelegate, @unchecked Sendable
     private func startImage(_ path: String) {
         guard let image = NSImage(contentsOfFile: path), image.isValid else { startupFailure(StructuredError("UNSUPPORTED_MEDIA", "image could not be decoded")); return }
         let size = image.size.width > 0 && image.size.height > 0 ? image.size : NSSize(width: 640, height: 480)
-        let window = makeWindow(size: NSSize(width: max(360, size.width), height: max(240, size.height + 48)))
+        let window = makeWindow(defaultSize: NSSize(width: max(360, size.width), height: max(240, size.height + 48)))
         let root = NSStackView()
         root.orientation = .vertical
+        root.alignment = .width
         root.spacing = 8
         root.edgeInsets = NSEdgeInsets(top: 12, left: 12, bottom: 12, right: 12)
         if let progress {
@@ -533,6 +530,10 @@ private final class MediaDialog: NSObject, NSWindowDelegate, @unchecked Sendable
         let view = NSImageView()
         view.image = image
         view.imageScaling = .scaleProportionallyUpOrDown
+        view.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        view.setContentHuggingPriority(.defaultLow, for: .vertical)
+        view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        view.setContentCompressionResistancePriority(.defaultLow, for: .vertical)
         view.setAccessibilityLabel(window.title)
         root.addArrangedSubview(view)
         let close = NSButton(title: "Close", target: self, action: #selector(closeMedia))
@@ -591,9 +592,10 @@ private final class MediaDialog: NSObject, NSWindowDelegate, @unchecked Sendable
 
     private func presentPlayer(_ player: AVPlayer, item: AVPlayerItem) {
         let video = step.mediaType == "video"
-        let window = makeWindow(size: video ? NSSize(width: 720, height: 480) : NSSize(width: 520, height: 120))
+        let window = makeWindow(defaultSize: video ? NSSize(width: 720, height: 480) : NSSize(width: 520, height: 150))
         let root = NSStackView()
         root.orientation = .vertical
+        root.alignment = .width
         root.spacing = 8
         root.edgeInsets = NSEdgeInsets(top: 12, left: 12, bottom: 12, right: 12)
         if let progress {
@@ -606,9 +608,11 @@ private final class MediaDialog: NSObject, NSWindowDelegate, @unchecked Sendable
         playerView.controlsStyle = .minimal
         playerView.videoGravity = .resizeAspect
         playerView.setAccessibilityLabel(window.title)
+        playerView.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        playerView.setContentHuggingPriority(.defaultLow, for: .vertical)
+        playerView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        playerView.setContentCompressionResistancePriority(.defaultLow, for: .vertical)
         root.addArrangedSubview(playerView)
-        playerView.widthAnchor.constraint(greaterThanOrEqualToConstant: 420).isActive = true
-        playerView.heightAnchor.constraint(equalToConstant: video ? 380 : 64).isActive = true
         let close = NSButton(title: "Close", target: self, action: #selector(closeMedia))
         root.addArrangedSubview(close)
         window.contentView = root
@@ -636,7 +640,7 @@ private final class MediaDialog: NSObject, NSWindowDelegate, @unchecked Sendable
     }
 
     func windowShouldClose(_ sender: NSWindow) -> Bool { finishDismissed(reason: "window_close"); return false }
-    @objc private func closeMedia() { finishDismissed(reason: "button") }
+    @objc private func closeMedia() { finishCompleted(reason: "button") }
 
     private func finishCompleted(reason: String) {
         finish(StepResponse(outcome: "completed", closeReason: reason, status: 1, mediaType: step.mediaType, loopsRan: step.mediaType == "image" ? 0 : loopsRan, escaped: false))

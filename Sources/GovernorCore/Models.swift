@@ -86,6 +86,8 @@ public struct StepDefinition: Codable, Sendable, Equatable {
     public var plays: Int?
     public var forever: Bool
     public var autoClose: Double?
+    public var width: Int?
+    public var height: Int?
     public var entryType: String?
     public var defaultValue: String?
     public var required: Bool

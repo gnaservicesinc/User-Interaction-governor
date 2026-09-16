@@ -79,8 +79,13 @@ for binary in "${BINARIES[@]}"; do
     echo "Unexpected architecture for $binary: $archs" >&2
     exit 1
   fi
-  if /usr/bin/otool -L "$PACKAGE_DIR/bin/$binary" | /usr/bin/grep -q '/usr/local'; then
-    echo "Ambient /usr/local dependency in $binary" >&2
+  if /usr/bin/otool -L "$PACKAGE_DIR/bin/$binary" | /usr/bin/sed '1d' | /usr/bin/grep -Eq '[[:space:]](/usr/local/|/opt/)'; then
+    echo "Ambient /usr/local or /opt dependency in $binary" >&2
+    exit 1
+  fi
+  minos=$(/usr/bin/otool -l "$PACKAGE_DIR/bin/$binary" | /usr/bin/awk '$1 == "minos" { print $2; exit }')
+  if [ "$minos" != "13.0" ]; then
+    echo "Unexpected deployment target for $binary: ${minos:-missing}" >&2
     exit 1
   fi
   /usr/bin/codesign --verify --strict "$PACKAGE_DIR/bin/$binary"
@@ -167,8 +172,13 @@ for executable in "${STUDIO_EXECUTABLES[@]}"; do
     echo "Unexpected Studio architecture for $executable: $archs" >&2
     exit 1
   fi
-  if /usr/bin/otool -L "$executable" | /usr/bin/grep -q '/usr/local'; then
-    echo "Ambient /usr/local dependency in $executable" >&2
+  if /usr/bin/otool -L "$executable" | /usr/bin/sed '1d' | /usr/bin/grep -Eq '[[:space:]](/usr/local/|/opt/)'; then
+    echo "Ambient /usr/local or /opt dependency in $executable" >&2
+    exit 1
+  fi
+  minos=$(/usr/bin/otool -l "$executable" | /usr/bin/awk '$1 == "minos" { print $2; exit }')
+  if [ "$minos" != "13.0" ]; then
+    echo "Unexpected deployment target for $executable: ${minos:-missing}" >&2
     exit 1
   fi
 done

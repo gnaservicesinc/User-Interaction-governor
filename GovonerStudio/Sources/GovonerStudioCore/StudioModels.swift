@@ -58,6 +58,8 @@ public struct StudioStep: Codable, Equatable, Identifiable, Sendable {
     public var plays: Int
     public var forever: Bool
     public var autoClose: Double
+    public var mediaWidth: Int?
+    public var mediaHeight: Int?
     public var entryType: String
     public var defaultValue: String
     public var required: Bool
@@ -84,6 +86,8 @@ public struct StudioStep: Codable, Equatable, Identifiable, Sendable {
         plays: Int = 1,
         forever: Bool = false,
         autoClose: Double = 0,
+        mediaWidth: Int? = nil,
+        mediaHeight: Int? = nil,
         entryType: String = "text",
         defaultValue: String = "",
         required: Bool = false,
@@ -109,6 +113,8 @@ public struct StudioStep: Codable, Equatable, Identifiable, Sendable {
         self.plays = plays
         self.forever = forever
         self.autoClose = autoClose
+        self.mediaWidth = mediaWidth
+        self.mediaHeight = mediaHeight
         self.entryType = entryType
         self.defaultValue = defaultValue
         self.required = required
@@ -183,6 +189,10 @@ public struct StudioStep: Codable, Equatable, Identifiable, Sendable {
         case .media:
             result.mediaType = mediaType
             result.path = mediaPath
+            if mediaType != "audio" {
+                result.width = mediaWidth
+                result.height = mediaHeight
+            }
             if mediaType == "image" {
                 guard autoClose.isFinite, autoClose >= 0 else {
                     throw StudioValidationError("Auto-close seconds must be zero or positive.")
@@ -240,6 +250,10 @@ public struct StudioStep: Codable, Equatable, Identifiable, Sendable {
         case .media:
             append(&arguments, "--media-type", mediaType)
             append(&arguments, "--path", mediaPath)
+            if mediaType != "audio" {
+                append(&arguments, "--width", mediaWidth.map(String.init))
+                append(&arguments, "--height", mediaHeight.map(String.init))
+            }
             if mediaType == "image" {
                 if autoClose > 0 { append(&arguments, "--auto-close", String(autoClose)) }
             } else {

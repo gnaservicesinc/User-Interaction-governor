@@ -77,7 +77,7 @@ Canonical options use hyphens; underscore aliases from the original draft are ac
 - `display`: requires `--message`; optional `--button`.
 - `choice`: requires `--message`; repeat `--button`. The default buttons are Yes and No.
 - `file`: requires `--mode open|save`; supports `--directory`, repeated shell-style `--filter`, and save-only `--filename`.
-- `media`: requires `--media-type image|audio|video` and `--path`; supports `--volume`, `--plays`, `--forever`, and image-only `--auto-close`.
+- `media`: requires `--media-type image|audio|video` and `--path`; supports `--volume`, `--plays`, `--forever`, image-only `--auto-close`, and optional `--width`/`--height` window dimensions for images and videos. Oversized windows are fitted to the current screen. Audio does not accept window dimensions.
 - `entry`: supports `--entry-type number|text|multiline`, `--message`, `--default`, `--required`, `--max-length`, and decimal `--min`/`--max`.
 - `confirm`: requires `--message`; supports `--confirm-label` and `--cancel-label`.
 

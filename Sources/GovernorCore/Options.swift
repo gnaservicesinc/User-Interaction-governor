@@ -26,6 +26,7 @@ public enum ArgumentParser {
         "response_type": "response-path", "response_format": "response-format",
         "exit_path": "exit-path", "uuid_path": "uuid-path", "start_timeout": "start-timeout",
         "entry_type": "entry-type", "media_type": "media-type", "auto_close": "auto-close",
+        "window_width": "width", "window_height": "height",
         "max_length": "max-length", "confirm_label": "confirm-label", "cancel_label": "cancel-label",
         "error_format": "error-format",
     ]
@@ -37,7 +38,7 @@ public enum ArgumentParser {
         "user-finished-path", "response-path", "response-format", "exit-path", "uuid-path",
         "days", "hours", "seconds", "start-timeout", "timeout", "format", "field", "step",
         "output", "reset", "mode", "directory", "filter", "filename", "media-type", "path",
-        "volume", "plays", "auto-close", "entry-type", "default", "max-length", "min", "max",
+        "volume", "plays", "auto-close", "width", "height", "entry-type", "default", "max-length", "min", "max",
         "confirm-label", "cancel-label", "error-format",
     ]
 

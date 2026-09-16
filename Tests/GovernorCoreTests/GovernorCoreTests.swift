@@ -4,10 +4,11 @@ import Testing
 @testable import GovernorCore
 
 @Test func argumentAliasesAndEqualsValues() throws {
-    let parsed = try ArgumentParser.parse(["--new", "--ui_type=DISPLAY", "--message=--literal"])
+    let parsed = try ArgumentParser.parse(["--new", "--ui_type=DISPLAY", "--message=--literal", "--window_width=640"])
     #expect(parsed.action == .new)
     #expect(parsed.value("ui-type") == "DISPLAY")
     #expect(parsed.value("message") == "--literal")
+    #expect(parsed.value("width") == "640")
 }
 
 @Test func decimalNormalizationIsExact() throws {
@@ -22,6 +23,30 @@ import Testing
     #expect(choice.buttons == ["Yes", "No"])
     #expect(throws: StructuredError.self) {
         try DefinitionValidator.step(options: ["ui-type": ["media"], "media-type": ["image"], "path": ["/tmp/x"], "plays": ["2"]], flags: [], workingDirectory: "/")
+    }
+    let image = try DefinitionValidator.step(
+        options: ["ui-type": ["media"], "media-type": ["image"], "path": ["/tmp/x"],
+                  "width": ["640"], "height": ["360"]], flags: [], workingDirectory: "/"
+    )
+    #expect(image.width == 640)
+    #expect(image.height == 360)
+    #expect(throws: StructuredError.self) {
+        try DefinitionValidator.step(
+            options: ["ui-type": ["media"], "media-type": ["audio"], "path": ["/tmp/x"], "width": ["640"]],
+            flags: [], workingDirectory: "/"
+        )
+    }
+    #expect(throws: StructuredError.self) {
+        try DefinitionValidator.step(
+            options: ["ui-type": ["media"], "media-type": ["video"], "path": ["/tmp/x"], "height": ["0"]],
+            flags: [], workingDirectory: "/"
+        )
+    }
+    #expect(throws: StructuredError.self) {
+        try DefinitionValidator.step(
+            options: ["ui-type": ["display"], "message": ["Hello"], "width": ["640"]],
+            flags: [], workingDirectory: "/"
+        )
     }
 }
 
