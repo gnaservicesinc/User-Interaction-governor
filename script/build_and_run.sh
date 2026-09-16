@@ -9,6 +9,7 @@ DIST_DIR="$ROOT_DIR/dist/development"
 APP_BUNDLE="$DIST_DIR/$APP_NAME.app"
 CONTENTS="$APP_BUNDLE/Contents"
 APP_BINARY="$CONTENTS/MacOS/$APP_NAME"
+COMPONENT_VERSION=$(/usr/bin/sed -n 's/^public let governorVersion = "\([^"]*\)"$/\1/p' "$ROOT_DIR/Sources/GovernorCore/Models.swift")
 
 pkill -x "$APP_NAME" >/dev/null 2>&1 || true
 
@@ -17,13 +18,16 @@ cd "$ROOT_DIR"
 BIN_DIR=$(/usr/bin/xcrun swift build --show-bin-path)
 
 rm -rf -- "$APP_BUNDLE"
-mkdir -p "$CONTENTS/MacOS" "$CONTENTS/Helpers" "$CONTENTS/Resources"
+mkdir -p "$CONTENTS/MacOS" "$CONTENTS/Components/bin" "$CONTENTS/Components/share/versions" "$CONTENTS/Resources"
 cp "$BIN_DIR/govoner-studio" "$APP_BINARY"
 chmod +x "$APP_BINARY"
-for helper in uig uigd uig-renderer; do
-  cp "$BIN_DIR/$helper" "$CONTENTS/Helpers/$helper"
-  chmod +x "$CONTENTS/Helpers/$helper"
+for helper in uig uigd uig-renderer ui-display ui-choice ui-entry ui-confirm ui-file ui-media; do
+  cp "$BIN_DIR/$helper" "$CONTENTS/Components/bin/$helper"
+  chmod +x "$CONTENTS/Components/bin/$helper"
+  printf '%s\n' "$COMPONENT_VERSION" >"$CONTENTS/Components/share/versions/$helper.version"
 done
+cp "$ROOT_DIR/Components/govoner-runtime.sh" "$CONTENTS/Components/share/govoner-runtime.sh"
+printf '%s\n' "$COMPONENT_VERSION" >"$CONTENTS/Components/share/versions/govoner-runtime.version"
 cp "$ROOT_DIR/GovonerStudio/Assets/GovonerStudio.icns" "$CONTENTS/Resources/"
 
 cat >"$CONTENTS/Info.plist" <<PLIST

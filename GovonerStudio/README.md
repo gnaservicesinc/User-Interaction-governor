@@ -10,10 +10,12 @@ Studio projects are JSON documents with the `.govonerstudio` extension. The edit
 - Add steps from the interaction library or **Add Step**. Cards show their message and key settings; select a card to configure it in the inspector.
 - Use a card's action menu to duplicate, move, or delete it. Dragging shows an insertion marker and changes the flow only when dropped.
 - **Run Preview** (⌘R) runs the flow. **Export Bash** groups script preview, copy, and save, with line numbers and copy feedback in the preview.
+- **Update Existing Script…** replaces the Govoner-managed area at the top of a selected Bash script while preserving all content below it and retaining the file's permissions.
+- **Manage UGL** compares the bundled and installed version of every component, then installs, updates, repairs, or uninstalls UGL from a Unix prefix or Framework layout.
 
 ## Bash export contract
 
-Every export contains a guarded shared runtime followed by the project-specific function. The runtime declares one reusable set of Bash associative arrays:
+Every export contains a managed header that sources the independently installed shared runtime, followed by the project-specific function. The runtime declares one reusable set of Bash associative arrays:
 
 - `GOVONER_RAN_LAST["$uuid"]`: `0` while pending, `1` after collection.
 - `GOVONER_RAN_STATUS["$uuid"]`: `setup`, `live`, `post_run`, `gone`, or `error`.
@@ -29,6 +31,17 @@ Call the generated interaction function directly so it can initialize globals in
 
 UUID-keyed associative arrays require Bash 4 or newer. macOS's system `/bin/bash` 3.2 is intentionally rejected with a clear message.
 
+The managed area ends with `## End Managed By Govoner Studio Managed Area Do Not Remove`. When Studio updates an existing script, everything from its Bash shebang through that marker is regenerated. If the script does not have the marker yet, Studio adds the managed block after the shebang without deleting the existing body.
+
+## UGL installation management
+
+The app bundle contains `uig`, `uigd`, `uig-renderer`, all six `ui-*` wrappers, and `govoner-runtime.sh`. The management screen supports:
+
+- a Unix prefix such as `/usr/local` or `$HOME/.local`, with executables in `bin` and runtime/version metadata in `lib/ugl`; or
+- a Framework such as `/Library/Frameworks/UGL.framework`, with payload files under `Versions/A` and stable `Versions/Current` paths for scripts and `PATH`.
+
+Each component has independent installed and bundled version information. Missing or older files make the primary action offer installation or update. Uninstall removes only the known UGL component files and then removes empty managed directories; it does not delete exported scripts or their surrounding user content.
+
 ## Build and run
 
 From the repository root:
@@ -38,4 +51,4 @@ From the repository root:
 ./script/build_and_run.sh --verify
 ```
 
-The controlled `./build.sh` runs all tests and creates both the command-line Govoner archive and the signed `Govoner Studio.app` archive.
+The controlled `./build.sh` runs all tests with release optimization and creates both the command-line Govoner archive and the signed `Govoner Studio.app` archive. `./build.sh --enable-debugging` is the explicit opt-in for separately named debug packages.

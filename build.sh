@@ -3,20 +3,45 @@ set -euo pipefail
 
 REPO_DIR=$(cd "$(dirname "$0")" && pwd)
 DEVELOPER_DIR_VALUE=${DEVELOPER_DIR:-$(/usr/bin/xcode-select -p)}
-BUILD_DIR="$REPO_DIR/.build/controlled-arm64"
-TEST_DIR="$REPO_DIR/.build/controlled-tests"
+CONFIGURATION=release
+BUILD_LABEL=""
+
+case "${1:-}" in
+  "") ;;
+  --enable-debugging)
+    CONFIGURATION=debug
+    BUILD_LABEL=-debug
+    ;;
+  --help|-h)
+    echo "usage: ./build.sh [--enable-debugging]"
+    echo "Builds optimized release archives by default; the flag creates separate debug archives."
+    exit 0
+    ;;
+  *)
+    echo "usage: ./build.sh [--enable-debugging]" >&2
+    exit 2
+    ;;
+esac
+
+BUILD_DIR="$REPO_DIR/.build/controlled-arm64-$CONFIGURATION"
+TEST_DIR="$REPO_DIR/.build/controlled-tests-$CONFIGURATION"
 CONTROLLED_HOME="$REPO_DIR/.build/controlled-home"
 DIST_ROOT="$REPO_DIR/dist"
-PACKAGE_NAME="User-Interaction-Governor-macos-arm64"
+PACKAGE_NAME="User-Interaction-Governor-macos-arm64$BUILD_LABEL"
 PACKAGE_DIR="$DIST_ROOT/$PACKAGE_NAME"
 ARCHIVE="$DIST_ROOT/$PACKAGE_NAME.zip"
-STUDIO_PACKAGE_NAME="Govoner-Studio-macos-arm64"
+STUDIO_PACKAGE_NAME="Govoner-Studio-macos-arm64$BUILD_LABEL"
 STUDIO_PACKAGE_DIR="$DIST_ROOT/$STUDIO_PACKAGE_NAME"
 STUDIO_APP="$STUDIO_PACKAGE_DIR/Govoner Studio.app"
 STUDIO_CONTENTS="$STUDIO_APP/Contents"
 STUDIO_ARCHIVE="$DIST_ROOT/$STUDIO_PACKAGE_NAME.zip"
 BINARIES=(uig uigd uig-renderer ui-display ui-choice ui-entry ui-confirm ui-file ui-media)
-STUDIO_HELPERS=(uig uigd uig-renderer)
+COMPONENT_VERSION=$(/usr/bin/sed -n 's/^public let governorVersion = "\([^"]*\)"$/\1/p' "$REPO_DIR/Sources/GovernorCore/Models.swift")
+RUNTIME_VERSION=$(/usr/bin/sed -n 's/^GOVONER_BASH_RUNTIME_VERSION=//p' "$REPO_DIR/Components/govoner-runtime.sh")
+if [ -z "$COMPONENT_VERSION" ] || [ "$COMPONENT_VERSION" != "$RUNTIME_VERSION" ]; then
+  echo "GovernorCore and Bash runtime component versions do not match." >&2
+  exit 1
+fi
 
 mkdir -p "$CONTROLLED_HOME" "$DIST_ROOT"
 chmod 700 "$CONTROLLED_HOME"
@@ -29,18 +54,18 @@ CONTROLLED_ENV=(
   MACOSX_DEPLOYMENT_TARGET=13.0
 )
 
-env -i "${CONTROLLED_ENV[@]}" /usr/bin/xcrun swift test --scratch-path "$TEST_DIR"
-env -i "${CONTROLLED_ENV[@]}" /usr/bin/xcrun swift build --configuration release --arch arm64 --scratch-path "$BUILD_DIR"
+env -i "${CONTROLLED_ENV[@]}" /usr/bin/xcrun swift test --configuration "$CONFIGURATION" --scratch-path "$TEST_DIR"
+env -i "${CONTROLLED_ENV[@]}" /usr/bin/xcrun swift build --configuration "$CONFIGURATION" --arch arm64 --scratch-path "$BUILD_DIR"
 
 rm -rf -- "$PACKAGE_DIR" "$STUDIO_PACKAGE_DIR"
 rm -f -- "$ARCHIVE" "$STUDIO_ARCHIVE" "$DIST_ROOT/SHA256SUMS.txt"
-mkdir -p "$PACKAGE_DIR/bin" "$PACKAGE_DIR/share/doc/UserInteractionGovernor"
+mkdir -p "$PACKAGE_DIR/bin" "$PACKAGE_DIR/lib/ugl/versions" "$PACKAGE_DIR/share/doc/UserInteractionGovernor"
 
 release_binary() {
   binary_name=$1
-  binary_path="$BUILD_DIR/arm64-apple-macosx/release/$binary_name"
+  binary_path="$BUILD_DIR/arm64-apple-macosx/$CONFIGURATION/$binary_name"
   if [ ! -x "$binary_path" ]; then
-    binary_path="$BUILD_DIR/release/$binary_name"
+    binary_path="$BUILD_DIR/$CONFIGURATION/$binary_name"
   fi
   printf '%s\n' "$binary_path"
 }
@@ -61,18 +86,28 @@ for binary in "${BINARIES[@]}"; do
   /usr/bin/codesign --verify --strict "$PACKAGE_DIR/bin/$binary"
 done
 
+/usr/bin/install -m 644 "$REPO_DIR/Components/govoner-runtime.sh" "$PACKAGE_DIR/lib/ugl/govoner-runtime.sh"
+for component in "${BINARIES[@]}" govoner-runtime; do
+  /usr/bin/printf '%s\n' "$COMPONENT_VERSION" >"$PACKAGE_DIR/lib/ugl/versions/$component.version"
+done
+/usr/bin/printf '%s\n' "${BINARIES[@]}" govoner-runtime >"$PACKAGE_DIR/lib/ugl/components.manifest"
+
 /bin/cp "$REPO_DIR/LICENSE" "$REPO_DIR/README.md" "$PACKAGE_DIR/share/doc/UserInteractionGovernor/"
 /usr/bin/ditto -c -k --sequesterRsrc --keepParent "$PACKAGE_DIR" "$ARCHIVE"
 
-mkdir -p "$STUDIO_CONTENTS/MacOS" "$STUDIO_CONTENTS/Helpers" "$STUDIO_CONTENTS/Resources/Documentation"
+mkdir -p "$STUDIO_CONTENTS/MacOS" "$STUDIO_CONTENTS/Components/bin" "$STUDIO_CONTENTS/Components/share/versions" "$STUDIO_CONTENTS/Resources/Documentation"
 /usr/bin/install -m 755 "$(release_binary govoner-studio)" "$STUDIO_CONTENTS/MacOS/Govoner Studio"
-for binary in "${STUDIO_HELPERS[@]}"; do
-  /usr/bin/install -m 755 "$(release_binary "$binary")" "$STUDIO_CONTENTS/Helpers/$binary"
+for binary in "${BINARIES[@]}"; do
+  /usr/bin/install -m 755 "$(release_binary "$binary")" "$STUDIO_CONTENTS/Components/bin/$binary"
+  /usr/bin/printf '%s\n' "$COMPONENT_VERSION" >"$STUDIO_CONTENTS/Components/share/versions/$binary.version"
 done
+/usr/bin/install -m 644 "$REPO_DIR/Components/govoner-runtime.sh" "$STUDIO_CONTENTS/Components/share/govoner-runtime.sh"
+/usr/bin/printf '%s\n' "$COMPONENT_VERSION" >"$STUDIO_CONTENTS/Components/share/versions/govoner-runtime.version"
+/usr/bin/printf '%s\n' "${BINARIES[@]}" govoner-runtime >"$STUDIO_CONTENTS/Components/share/components.manifest"
 /bin/cp "$REPO_DIR/GovonerStudio/Assets/GovonerStudio.icns" "$STUDIO_CONTENTS/Resources/"
 /bin/cp "$REPO_DIR/LICENSE" "$REPO_DIR/README.md" "$STUDIO_CONTENTS/Resources/Documentation/"
 
-/bin/cat >"$STUDIO_CONTENTS/Info.plist" <<'PLIST'
+/bin/cat >"$STUDIO_CONTENTS/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -90,7 +125,7 @@ done
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>
-  <string>1.0.0</string>
+  <string>$COMPONENT_VERSION</string>
   <key>CFBundleVersion</key>
   <string>1</string>
   <key>LSApplicationCategoryType</key>
@@ -122,8 +157,8 @@ done
 PLIST
 
 STUDIO_EXECUTABLES=("$STUDIO_CONTENTS/MacOS/Govoner Studio")
-for binary in "${STUDIO_HELPERS[@]}"; do
-  STUDIO_EXECUTABLES+=("$STUDIO_CONTENTS/Helpers/$binary")
+for binary in "${BINARIES[@]}"; do
+  STUDIO_EXECUTABLES+=("$STUDIO_CONTENTS/Components/bin/$binary")
 done
 for executable in "${STUDIO_EXECUTABLES[@]}"; do
   /usr/bin/codesign --force --sign - "$executable"
@@ -150,3 +185,4 @@ done
 
 echo "Built $ARCHIVE"
 echo "Built $STUDIO_ARCHIVE"
+echo "Configuration: $CONFIGURATION"

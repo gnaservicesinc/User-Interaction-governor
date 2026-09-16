@@ -1,17 +1,70 @@
 import Foundation
 
 public enum BashExporter {
-    public static func export(_ project: StudioProject) throws -> String {
+    public static let defaultRuntimePath = "/usr/local/lib/ugl/govoner-runtime.sh"
+    public static let managedEndMarker = "## End Managed By Govoner Studio Managed Area Do Not Remove"
+
+    public static func export(
+        _ project: StudioProject,
+        runtimePath: String = defaultRuntimePath
+    ) throws -> String {
+        try managedBlock(project, runtimePath: runtimePath) + "\n"
+    }
+
+    public static func updating(
+        script: String,
+        with project: StudioProject,
+        runtimePath: String = defaultRuntimePath
+    ) throws -> String {
+        guard !script.isEmpty else { return try export(project, runtimePath: runtimePath) }
+        guard script.hasPrefix("#!"),
+              let firstLineEnd = script.firstIndex(of: "\n") else {
+            throw StudioValidationError("The selected script must begin with a Bash #! line.")
+        }
+        let shebang = String(script[..<firstLineEnd])
+        guard shebang.lowercased().contains("bash") else {
+            throw StudioValidationError("The selected script must use Bash in its #! line.")
+        }
+
+        let block = try managedBlock(project, runtimePath: runtimePath, shebang: shebang)
+        let afterShebang = script.index(after: firstLineEnd)
+        let remainder: Substring
+        if let marker = script.range(of: managedEndMarker, range: afterShebang..<script.endIndex) {
+            var bodyStart = marker.upperBound
+            if bodyStart < script.endIndex, script[bodyStart] == "\r" { bodyStart = script.index(after: bodyStart) }
+            if bodyStart < script.endIndex, script[bodyStart] == "\n" { bodyStart = script.index(after: bodyStart) }
+            remainder = script[bodyStart...]
+        } else {
+            remainder = script[afterShebang...]
+        }
+        return remainder.isEmpty ? block + "\n" : block + "\n\n" + remainder
+    }
+
+    private static func managedBlock(
+        _ project: StudioProject,
+        runtimePath: String,
+        shebang: String = "#!/usr/bin/env bash"
+    ) throws -> String {
         guard isShellIdentifier(project.functionName) else {
             throw StudioValidationError("Function names must start with a letter or underscore and contain only letters, numbers, and underscores.")
+        }
+        guard runtimePath.first == "/", !runtimePath.contains("\n"), !runtimePath.contains("\r") else {
+            throw StudioValidationError("The Govoner Bash runtime must use an absolute path.")
         }
         _ = try project.validatedDefinitions()
 
         let commentName = project.name
             .replacingOccurrences(of: "\r", with: " ")
             .replacingOccurrences(of: "\n", with: " ")
-        var output = sharedRuntime
-        output += "\n"
+        var output = shebang + "\n"
+        output += "## Managed By Govoner Studio — changes in this area are replaced on export.\n"
+        output += "GOVONER_BASH_RUNTIME=\(shellQuote(runtimePath))\n"
+        output += "if [[ ! -r $GOVONER_BASH_RUNTIME ]]; then\n"
+        output += "  printf '%s\\n' \"Govoner Bash runtime not found: $GOVONER_BASH_RUNTIME\" >&2\n"
+        output += "  return 2 2>/dev/null || exit 2\n"
+        output += "fi\n"
+        output += "# shellcheck source=/dev/null\n"
+        output += "source \"$GOVONER_BASH_RUNTIME\"\n\n"
         output += functionComment(project: project, name: commentName)
         output += "\(project.functionName)() {\n"
         output += "  local uuid\n"
@@ -65,6 +118,7 @@ public enum BashExporter {
         output += "  fi\n"
         output += "  GOVONER_RAN_STATUS[\"$uuid\"]=live\n"
         output += "}\n"
+        output += managedEndMarker
         return output
     }
 
@@ -125,131 +179,6 @@ public enum BashExporter {
         return lines.joined(separator: "\n")
     }
 
-    private static let sharedRuntime = #"""
-# Shared Govoner Bash runtime. Paste it once; additional Studio exports reuse it.
-# UUID-keyed globals require Bash 4 or newer (macOS /bin/bash 3.2 is too old).
-if (( ${BASH_VERSINFO[0]:-0} < 4 )); then
-  printf '%s\n' 'Govoner exports require Bash 4 or newer for UUID-keyed associative arrays.' >&2
-  return 2 2>/dev/null || exit 2
-fi
-
-if [[ -z ${GOVONER_BASH_RUNTIME_LOADED:-} ]]; then
-  GOVONER_BASH_RUNTIME_LOADED=1
-  declare -A GOVONER_RAN_LAST
-  declare -A GOVONER_RAN_STATUS
-  declare -A GOVONER_RAN_RESULT_TYPE
-  declare -A GOVONER_RAN_RESULT_JSON
-  declare -A GOVONER_RAN_ERROR
-  declare -A GOVONER_RAN_RUN_NUMBER
-  declare -A GOVONER_RAN_STEP_COUNT
-  declare -A GOVONER_RAN_STEP_UI_TYPE
-  declare -A GOVONER_RAN_STEP_FIELD
-  declare -A GOVONER_RAN_STEP_RESULT_TYPE
-  declare -A GOVONER_RAN_STEP_VALUE
-  GOVONER_LAST_RUN_UUID=''
-
-  govoner_poll() {
-    local uuid=${1:-}
-    local state payload outcome run_number error_json count index key field step_outcome value
-    if [[ -z $uuid ]]; then
-      printf '%s\n' 'govoner_poll: a UUID is required' >&2
-      return 2
-    fi
-    if ! state=$(command uig --status --uuid "$uuid" 2>&1); then
-      GOVONER_RAN_STATUS["$uuid"]=error
-      GOVONER_RAN_ERROR["$uuid"]=$state
-      return 2
-    fi
-    case $state in
-      0)
-        GOVONER_RAN_STATUS["$uuid"]=setup
-        return 1
-        ;;
-      1)
-        GOVONER_RAN_STATUS["$uuid"]=live
-        return 1
-        ;;
-      2)
-        GOVONER_RAN_STATUS["$uuid"]=post_run
-        if [[ ${GOVONER_RAN_LAST["$uuid"]:-0} == 1 ]]; then
-          return 0
-        fi
-        if ! payload=$(command uig --dump --uuid "$uuid" 2>&1); then
-          GOVONER_RAN_STATUS["$uuid"]=error
-          GOVONER_RAN_ERROR["$uuid"]=$payload
-          return 2
-        fi
-        GOVONER_RAN_RESULT_JSON["$uuid"]=$payload
-        outcome=$(command uig --get --uuid "$uuid" --field outcome 2>/dev/null) || outcome=unknown
-        run_number=$(command uig --get --uuid "$uuid" --field run_number 2>/dev/null) || run_number=0
-        error_json=$(command uig --get --uuid "$uuid" --field error --format json 2>/dev/null) || error_json=null
-        GOVONER_RAN_RESULT_TYPE["$uuid"]=$outcome
-        GOVONER_RAN_RUN_NUMBER["$uuid"]=$run_number
-        [[ $error_json == null ]] && error_json=''
-        GOVONER_RAN_ERROR["$uuid"]=$error_json
-        count=${GOVONER_RAN_STEP_COUNT["$uuid"]:-0}
-        for ((index = 0; index < count; index++)); do
-          key="$uuid:$index"
-          step_outcome=$(command uig --get --uuid "$uuid" --step "$index" --field outcome 2>/dev/null) || step_outcome=unknown
-          GOVONER_RAN_STEP_RESULT_TYPE["$key"]=$step_outcome
-          field=${GOVONER_RAN_STEP_FIELD["$key"]:-}
-          value=''
-          if [[ -n $field ]]; then
-            value=$(command uig --get --uuid "$uuid" --step "$index" --field "$field" 2>/dev/null) || value=''
-          fi
-          GOVONER_RAN_STEP_VALUE["$key"]=$value
-        done
-        GOVONER_RAN_LAST["$uuid"]=1
-        return 0
-        ;;
-      3)
-        GOVONER_RAN_STATUS["$uuid"]=gone
-        if [[ ${GOVONER_RAN_LAST["$uuid"]:-0} == 1 ]]; then
-          return 0
-        fi
-        GOVONER_RAN_ERROR["$uuid"]='The interaction no longer exists.'
-        return 2
-        ;;
-      *)
-        GOVONER_RAN_STATUS["$uuid"]=error
-        GOVONER_RAN_ERROR["$uuid"]="Unexpected status: $state"
-        return 2
-        ;;
-    esac
-  }
-
-  govoner_wait() {
-    local uuid=${1:-}
-    local timeout=${2:-0}
-    local deadline=0 result
-    if ! [[ $timeout =~ ^[0-9]+$ ]]; then
-      printf '%s\n' 'govoner_wait: timeout must be a whole number of seconds' >&2
-      return 2
-    fi
-    if (( timeout > 0 )); then
-      deadline=$((SECONDS + timeout))
-    fi
-    while :; do
-      govoner_poll "$uuid"
-      result=$?
-      if (( result == 0 )); then return 0; fi
-      if (( result != 1 )); then return "$result"; fi
-      if (( deadline > 0 && SECONDS >= deadline )); then
-        GOVONER_RAN_ERROR["$uuid"]='Timed out while waiting; the interaction is still active.'
-        return 124
-      fi
-      sleep 0.1
-    done
-  }
-
-  govoner_end() {
-    local uuid=${1:-}
-    [[ -n $uuid ]] || { printf '%s\n' 'govoner_end: a UUID is required' >&2; return 2; }
-    command uig --end --uuid "$uuid" || return
-    GOVONER_RAN_STATUS["$uuid"]=gone
-  }
-fi
-"""#
 }
 
 private extension String {

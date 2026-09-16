@@ -7,6 +7,10 @@ private func serviceError(_ message: String) {
 }
 
 let arguments = Set(CommandLine.arguments.dropFirst())
+if arguments == ["--version"] {
+    print("uigd \(governorVersion)")
+    exit(0)
+}
 guard arguments.isSubset(of: ["--daemon", "--foreground"]) else {
     serviceError("usage: uigd [--daemon|--foreground]")
     exit(2)

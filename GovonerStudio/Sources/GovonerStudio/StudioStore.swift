@@ -81,7 +81,9 @@ final class StudioStore: ObservableObject {
         selection = stepID
     }
 
-    func bash() throws -> String { try BashExporter.export(project) }
+    func bash(runtimePath: String = BashExporter.defaultRuntimePath) throws -> String {
+        try BashExporter.export(project, runtimePath: runtimePath)
+    }
 
     private static var autosaveURL: URL {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]

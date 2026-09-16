@@ -14,6 +14,8 @@ Build, test, and create the controlled arm64 archives for The Govoner and Govone
 export PATH="$HOME/.local/bin:$PATH"
 ```
 
+The command-line installer also installs the shared Bash runtime at `$HOME/.local/lib/ugl/govoner-runtime.sh`. Govoner Studio has a graphical **Manage UGL** screen for installing the complete component set into `/usr/local`, a custom prefix, or `/Library/Frameworks/UGL.framework`. The Framework layout exposes `Versions/Current/bin` for `PATH` and a stable `Versions/Current/Resources/govoner-runtime.sh` source path.
+
 Create, show, inspect, and clean up a notice:
 
 ```bash
@@ -37,7 +39,9 @@ The one-shot commands perform create, trigger/wait, dump, and end with the same 
 
 `Govoner Studio` is the native visual builder in [`GovonerStudio/`](GovonerStudio/). It turns the same sequential interaction model into a draggable flow: choose an interaction from the palette, drop or reorder cards on the canvas, edit type-specific settings in the inspector, preview through the existing engine, then copy or save the generated Bash functions.
 
-Studio exports one guarded shared runtime plus the UI-specific launch function. Call the launch function directly, copy `GOVONER_LAST_RUN_UUID`, and use `govoner_poll "$uuid"` for a nonblocking refresh or `govoner_wait "$uuid"` to block until completion. Results are isolated in associative arrays keyed by UUID, including `GOVONER_RAN_LAST`, `GOVONER_RAN_RESULT_TYPE`, `GOVONER_RAN_RESULT_JSON`, and per-step values keyed as `"$uuid:$step"`. The generated comment block documents the exact fields for that flow.
+Studio exports a small managed block containing a source line for the separately installed shared runtime plus the UI-specific launch function. Call the launch function directly, copy `GOVONER_LAST_RUN_UUID`, and use `govoner_poll "$uuid"` for a nonblocking refresh or `govoner_wait "$uuid"` to block until completion. Results are isolated in associative arrays keyed by UUID, including `GOVONER_RAN_LAST`, `GOVONER_RAN_RESULT_TYPE`, `GOVONER_RAN_RESULT_JSON`, and per-step values keyed as `"$uuid:$step"`. The generated comment block documents the exact fields for that flow.
+
+**Update Existing Script…** opens a Bash script and owns only the region from its Bash `#!` line through `## End Managed By Govoner Studio Managed Area Do Not Remove`. On the first update, Studio inserts that region immediately after the existing shebang and preserves the rest of the file. Later updates replace the managed region so old functions and globals cannot accumulate. File permissions, including the executable bit, are preserved.
 
 Bash cannot update a script's variables merely because the separate Govoner service completed, so polling is an explicit function call rather than a signal trap. UUID-keyed associative arrays also require Bash 4 or newer; macOS's built-in Bash 3.2 is rejected clearly by the generated runtime.
 
@@ -139,9 +143,9 @@ Media uses the native `NSImage` and AVFoundation decoders. Local desktop smoke v
 
 ## Development
 
-The package has no third-party dependencies. SQLite, AppKit, AVKit, and AVFoundation come from macOS. The build script runs SwiftPM with a sanitized environment and system-only `PATH`, then checks every packaged Mach-O for arm64 architecture, `/usr/local` dependencies, and valid ad-hoc signatures.
+The package has no third-party dependencies. SQLite, AppKit, AVKit, and AVFoundation come from macOS. The build script runs SwiftPM with a sanitized environment and system-only `PATH`, then checks every packaged Mach-O for arm64 architecture, `/usr/local` dependencies, and valid ad-hoc signatures. `./build.sh` builds and tests optimized release binaries by default. Use `./build.sh --enable-debugging` only when you need unoptimized debug binaries; those use `-debug` package and archive names so they do not replace release artifacts.
 
-The outputs are `dist/User-Interaction-Governor-macos-arm64.zip` and `dist/Govoner-Studio-macos-arm64.zip`. The Studio app bundles `uig`, `uigd`, and `uig-renderer` as private helpers so preview works without a separate installation.
+The outputs are `dist/User-Interaction-Governor-macos-arm64.zip` and `dist/Govoner-Studio-macos-arm64.zip`. The Studio app bundles all nine executables and the shared Bash runtime. Preview uses the bundled `uig`, `uigd`, and renderer, while the management screen can copy the complete bundled set to an independent installation that keeps exported scripts working after the app is removed.
 
 ```bash
 env -i HOME="$HOME" TMPDIR=/tmp PATH=/usr/bin:/bin:/usr/sbin:/sbin \

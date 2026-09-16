@@ -5,6 +5,11 @@ import Darwin
 import Foundation
 import GovernorCore
 
+if CommandLine.arguments.dropFirst() == ["--version"] {
+    print("uig-renderer \(governorVersion)")
+    exit(0)
+}
+
 private final class EventWriter: @unchecked Sendable {
     private let lock = NSLock()
 

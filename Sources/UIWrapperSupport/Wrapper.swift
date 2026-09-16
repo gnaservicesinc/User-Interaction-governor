@@ -51,13 +51,18 @@ private func installSignalCleanup() {
 }
 
 public func runWrapper(type: UIType) -> Never {
+    let originalArguments = Array(CommandLine.arguments.dropFirst())
+    if originalArguments == ["--version"] {
+        print("ui-\(type.rawValue) \(governorVersion)")
+        exit(0)
+    }
     guard let executable = siblingExecutable(named: "uig") else {
         try? FileHandle.standardError.write(contentsOf: Data("wrapper: cannot find uig next to this executable\n".utf8))
         exit(5)
     }
     wrapperUIG = executable
     installSignalCleanup()
-    var arguments = Array(CommandLine.arguments.dropFirst())
+    var arguments = originalArguments
     if arguments.contains("--help") || arguments.contains("-h") {
         let positional = [.display, .choice, .entry, .confirm].contains(type) ? " MESSAGE" : ""
         print("Usage: ui-\(type.rawValue)\(positional) [uig creation options]\nCreates, presents, prints a JSON result, and cleans up one interaction.")

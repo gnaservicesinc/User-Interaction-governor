@@ -14,6 +14,7 @@ struct StudioCommandActions {
     let saveProject: () -> Void
     let copyBash: () -> Void
     let runPreview: () -> Void
+    let manageUGL: () -> Void
     let canRunPreview: Bool
     let recentProjects: [URL]
     let openRecentProject: (URL) -> Void
@@ -61,6 +62,9 @@ private struct StudioCommands: Commands {
             Button("Run Preview") { actions?.runPreview() }
                 .keyboardShortcut("r", modifiers: [.command])
                 .disabled(actions?.canRunPreview != true)
+            Divider()
+            Button("Manage UGL Installation…") { actions?.manageUGL() }
+                .disabled(actions == nil)
         }
     }
 }

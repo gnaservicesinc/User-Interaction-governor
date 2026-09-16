@@ -5,6 +5,7 @@ import UniformTypeIdentifiers
 
 struct ContentView: View {
     @StateObject private var store = StudioStore()
+    @StateObject private var installationManager = UGLInstallationManager()
     @ObservedObject private var recentProjects = RecentProjectsStore.shared
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State private var dragItem: StudioDragItem?
@@ -17,6 +18,7 @@ struct ContentView: View {
     @State private var bashPreview = ""
     @State private var errorMessage: String?
     @State private var isStartingPreview = false
+    @State private var showUGLManager = false
 
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
@@ -58,6 +60,9 @@ struct ContentView: View {
         )
         .sheet(isPresented: $showBashPreview) {
             BashPreviewView(text: bashPreview, filename: store.project.functionName + ".sh", copy: copyBash, save: saveBash)
+        }
+        .sheet(isPresented: $showUGLManager) {
+            UGLManagementView(manager: installationManager)
         }
         .alert(
             "Govoner Studio",
@@ -115,11 +120,17 @@ struct ContentView: View {
                 Button("Copy Script", action: copyBash)
                 Divider()
                 Button("Save Script…", action: saveBash)
+                Button("Update Existing Script…", action: updateExistingScript)
             } label: {
                 Label("Export Bash", systemImage: "square.and.arrow.up")
             }
             .disabled(store.project.steps.isEmpty)
             .help("Preview, copy, or save the Bash script")
+
+            Button { showUGLManager = true } label: {
+                Label("Manage UGL", systemImage: "shippingbox")
+            }
+            .help("Install, update, or uninstall the local UGL components")
 
             Button(action: runPreview) {
                 Label(isStartingPreview ? "Starting…" : "Run Preview", systemImage: "play.fill")
@@ -165,6 +176,7 @@ struct ContentView: View {
             saveProject: saveProject,
             copyBash: copyBash,
             runPreview: runPreview,
+            manageUGL: { showUGLManager = true },
             canRunPreview: canRunPreview,
             recentProjects: recentProjects.urls,
             openRecentProject: openProjectURL,
@@ -205,7 +217,7 @@ struct ContentView: View {
 
     private func previewBash() {
         do {
-            bashPreview = try store.bash()
+            bashPreview = try store.bash(runtimePath: installationManager.exportRuntimePath)
             showBashPreview = true
         } catch {
             errorMessage = error.localizedDescription
@@ -214,7 +226,7 @@ struct ContentView: View {
 
     private func copyBash() {
         do {
-            let text = try store.bash()
+            let text = try store.bash(runtimePath: installationManager.exportRuntimePath)
             let pasteboard = NSPasteboard.general
             pasteboard.clearContents()
             pasteboard.setString(text, forType: .string)
@@ -227,10 +239,37 @@ struct ContentView: View {
 
     private func saveBash() {
         do {
-            bashDocument = BashScriptDocument(text: try store.bash())
+            bashDocument = BashScriptDocument(text: try store.bash(runtimePath: installationManager.exportRuntimePath))
             exportingBash = true
         } catch {
             errorMessage = error.localizedDescription
+        }
+    }
+
+    private func updateExistingScript() {
+        let panel = NSOpenPanel()
+        panel.title = "Update a Bash Script"
+        panel.message = "Govoner Studio will replace its managed area and preserve the rest of the script."
+        panel.prompt = "Update Script"
+        panel.allowedContentTypes = [.govonerBashScript, .shellScript, .plainText]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
+            let existing = try String(contentsOf: url, encoding: .utf8)
+            let updated = try BashExporter.updating(
+                script: existing,
+                with: store.project,
+                runtimePath: installationManager.exportRuntimePath
+            )
+            try Data(updated.utf8).write(to: url, options: .atomic)
+            if let permissions = attributes[.posixPermissions] {
+                try FileManager.default.setAttributes([.posixPermissions: permissions], ofItemAtPath: url.path)
+            }
+            store.previewStatus = "Updated \(url.lastPathComponent)"
+        } catch {
+            errorMessage = "Could not update the script: \(error.localizedDescription)"
         }
     }
 

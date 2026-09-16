@@ -55,6 +55,7 @@ enum StudioPreviewRunner {
         var candidates: [URL] = []
         if let executable = Bundle.main.executableURL {
             let contents = executable.deletingLastPathComponent().deletingLastPathComponent()
+            candidates.append(contents.appendingPathComponent("Components/bin/uig"))
             candidates.append(contents.appendingPathComponent("Helpers/uig"))
             candidates.append(executable.deletingLastPathComponent().appendingPathComponent("uig"))
         }
