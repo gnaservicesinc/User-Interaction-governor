@@ -6,6 +6,7 @@ let package = Package(
     platforms: [.macOS(.v13)],
     products: [
         .library(name: "GovernorCore", targets: ["GovernorCore"]),
+        .library(name: "GovonerStudioCore", targets: ["GovonerStudioCore"]),
         .executable(name: "uig", targets: ["UIGCLI"]),
         .executable(name: "uigd", targets: ["UIGService"]),
         .executable(name: "uig-renderer", targets: ["UIGRenderer"]),
@@ -15,6 +16,7 @@ let package = Package(
         .executable(name: "ui-confirm", targets: ["UIConfirm"]),
         .executable(name: "ui-file", targets: ["UIFile"]),
         .executable(name: "ui-media", targets: ["UIMedia"]),
+        .executable(name: "govoner-studio", targets: ["GovonerStudio"]),
     ],
     targets: [
         .systemLibrary(
@@ -34,6 +36,17 @@ let package = Package(
             ]
         ),
         .target(name: "UIWrapperSupport", dependencies: ["GovernorCore"]),
+        .target(
+            name: "GovonerStudioCore",
+            dependencies: ["GovernorCore"],
+            path: "GovonerStudio/Sources/GovonerStudioCore"
+        ),
+        .executableTarget(
+            name: "GovonerStudio",
+            dependencies: ["GovonerStudioCore", "GovernorCore"],
+            path: "GovonerStudio/Sources/GovonerStudio",
+            linkerSettings: [.linkedFramework("AppKit")]
+        ),
         .executableTarget(name: "UIDisplay", dependencies: ["UIWrapperSupport"]),
         .executableTarget(name: "UIChoice", dependencies: ["UIWrapperSupport"]),
         .executableTarget(name: "UIEntry", dependencies: ["UIWrapperSupport"]),
@@ -41,6 +54,11 @@ let package = Package(
         .executableTarget(name: "UIFile", dependencies: ["UIWrapperSupport"]),
         .executableTarget(name: "UIMedia", dependencies: ["UIWrapperSupport"]),
         .testTarget(name: "GovernorCoreTests", dependencies: ["GovernorCore"]),
+        .testTarget(
+            name: "GovonerStudioCoreTests",
+            dependencies: ["GovonerStudioCore", "GovernorCore"],
+            path: "GovonerStudio/Tests/GovonerStudioCoreTests"
+        ),
     ],
     swiftLanguageModes: [.v5]
 )

@@ -104,6 +104,10 @@ public struct StepDefinition: Codable, Sendable, Equatable {
 
 public struct InteractionDefinition: Codable, Sendable, Equatable {
     public var steps: [StepDefinition]
+
+    public init(steps: [StepDefinition]) {
+        self.steps = steps
+    }
 }
 
 public struct ResultError: Codable, Sendable, Equatable {

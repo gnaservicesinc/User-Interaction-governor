@@ -6,7 +6,7 @@ Version 1 supports a local logged-in user on Apple-silicon macOS 13 or later. It
 
 ## Quick start
 
-Build, test, and create the controlled arm64 archive:
+Build, test, and create the controlled arm64 archives for The Govoner and Govoner Studio:
 
 ```bash
 ./build.sh
@@ -32,6 +32,14 @@ ui-media --media-type image --path ./preview.png
 ```
 
 The one-shot commands perform create, trigger/wait, dump, and end with the same engine and result model. `ui-display` is silent on success by default; add `--json` to print its result.
+
+## Govoner Studio
+
+`Govoner Studio` is the native visual builder in [`GovonerStudio/`](GovonerStudio/). It turns the same sequential interaction model into a draggable flow: choose an interaction from the palette, drop or reorder cards on the canvas, edit type-specific settings in the inspector, preview through the existing engine, then copy or save the generated Bash functions.
+
+Studio exports one guarded shared runtime plus the UI-specific launch function. Call the launch function directly, copy `GOVONER_LAST_RUN_UUID`, and use `govoner_poll "$uuid"` for a nonblocking refresh or `govoner_wait "$uuid"` to block until completion. Results are isolated in associative arrays keyed by UUID, including `GOVONER_RAN_LAST`, `GOVONER_RAN_RESULT_TYPE`, `GOVONER_RAN_RESULT_JSON`, and per-step values keyed as `"$uuid:$step"`. The generated comment block documents the exact fields for that flow.
+
+Bash cannot update a script's variables merely because the separate Govoner service completed, so polling is an explicit function call rather than a signal trap. UUID-keyed associative arrays also require Bash 4 or newer; macOS's built-in Bash 3.2 is rejected clearly by the generated runtime.
 
 ## Command model
 
@@ -132,6 +140,8 @@ Media uses the native `NSImage` and AVFoundation decoders. Local desktop smoke v
 ## Development
 
 The package has no third-party dependencies. SQLite, AppKit, AVKit, and AVFoundation come from macOS. The build script runs SwiftPM with a sanitized environment and system-only `PATH`, then checks every packaged Mach-O for arm64 architecture, `/usr/local` dependencies, and valid ad-hoc signatures.
+
+The outputs are `dist/User-Interaction-Governor-macos-arm64.zip` and `dist/Govoner-Studio-macos-arm64.zip`. The Studio app bundles `uig`, `uigd`, and `uig-renderer` as private helpers so preview works without a separate installation.
 
 ```bash
 env -i HOME="$HOME" TMPDIR=/tmp PATH=/usr/bin:/bin:/usr/sbin:/sbin \
