@@ -14,6 +14,10 @@ struct StudioCommandActions {
     let saveProject: () -> Void
     let copyBash: () -> Void
     let runPreview: () -> Void
+    let canRunPreview: Bool
+    let recentProjects: [URL]
+    let openRecentProject: (URL) -> Void
+    let clearRecentProjects: () -> Void
 }
 
 private struct StudioCommandActionsKey: FocusedValueKey {
@@ -38,6 +42,14 @@ private struct StudioCommands: Commands {
             Button("Open Project…") { actions?.openProject() }
                 .keyboardShortcut("o")
                 .disabled(actions == nil)
+            Menu("Open Recent") {
+                RecentProjectMenuItems(
+                    urls: actions?.recentProjects ?? [],
+                    open: { actions?.openRecentProject($0) },
+                    clear: { actions?.clearRecentProjects() }
+                )
+            }
+            .disabled(actions == nil)
             Button("Save Project As…") { actions?.saveProject() }
                 .keyboardShortcut("s", modifiers: [.command, .shift])
                 .disabled(actions == nil)
@@ -48,7 +60,7 @@ private struct StudioCommands: Commands {
                 .disabled(actions == nil)
             Button("Run Preview") { actions?.runPreview() }
                 .keyboardShortcut("r", modifiers: [.command])
-                .disabled(actions == nil)
+                .disabled(actions?.canRunPreview != true)
         }
     }
 }

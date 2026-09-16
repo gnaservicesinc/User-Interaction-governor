@@ -5,214 +5,217 @@ import UniformTypeIdentifiers
 struct FlowCanvasView: View {
     @ObservedObject var store: StudioStore
     @Binding var dragItem: StudioDragItem?
-    @State private var isDropTarget = false
+    @State private var dropTarget: UUID?
+    @State private var isEndTarget = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        ScrollView {
-            VStack(spacing: 0) {
-                header
-
-                if store.project.steps.isEmpty {
-                    emptyState
-                        .padding(.top, 60)
-                        .onDrop(
-                            of: [.text],
-                            delegate: FlowEndDropDelegate(store: store, dragItem: $dragItem, isTargeted: $isDropTarget)
-                        )
-                } else {
-                    ForEach(Array(store.project.steps.enumerated()), id: \.element.id) { index, step in
-                        if index > 0 { connector }
-                        FlowStepCard(
-                            step: step,
-                            index: index,
-                            selected: store.selection == step.id,
-                            select: { store.selection = step.id },
-                            beginDrag: { dragItem = .step(step.id) }
-                        )
-                        .onDrop(
-                            of: [.text],
-                            delegate: FlowCardDropDelegate(
-                                targetID: step.id,
-                                store: store,
-                                dragItem: $dragItem
-                            )
-                        )
+        VStack(spacing: 0) {
+            header
+            Divider()
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(spacing: 0) {
+                        if store.project.steps.isEmpty {
+                            emptyState
+                        } else {
+                            endpoint("Start", icon: "play.fill")
+                            connector
+                            ForEach(Array(store.project.steps.enumerated()), id: \.element.id) { index, step in
+                                FlowStepCard(
+                                    store: store,
+                                    step: step,
+                                    index: index,
+                                    selected: store.selection == step.id,
+                                    beginDrag: { dragItem = .step(step.id) }
+                                )
+                                .id(step.id)
+                                .overlay(alignment: .top) {
+                                    if dropTarget == step.id {
+                                        Capsule().fill(Color.accentColor).frame(height: 3).offset(y: -8)
+                                    }
+                                }
+                                .onDrop(
+                                    of: [.studioInteraction],
+                                    delegate: FlowDropDelegate(
+                                        targetID: step.id,
+                                        store: store,
+                                        dragItem: $dragItem,
+                                        dropTarget: $dropTarget,
+                                        isEndTarget: $isEndTarget
+                                    )
+                                )
+                                connector
+                            }
+                            endpoint("Finish · Collect results", icon: "checkmark.circle")
+                                .padding(.bottom, 24)
+                            addStepTarget
+                        }
                     }
-
-                    connector
-                    endCap
-                        .onDrop(
-                            of: [.text],
-                            delegate: FlowEndDropDelegate(store: store, dragItem: $dragItem, isTargeted: $isDropTarget)
-                        )
+                    .frame(maxWidth: 580)
+                    .padding(28)
+                    .frame(maxWidth: .infinity)
+                }
+                .onChange(of: store.selection) { selection in
+                    guard let selection else { return }
+                    withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
+                        proxy.scrollTo(selection)
+                    }
                 }
             }
-            .frame(maxWidth: 620)
-            .padding(28)
-            .frame(maxWidth: .infinity)
-        }
-        .background(.ultraThinMaterial)
-        .overlay {
-            if isDropTarget {
-                RoundedRectangle(cornerRadius: 14)
-                    .stroke(Color.accentColor, style: StrokeStyle(lineWidth: 2, dash: [7]))
-                    .padding(10)
-                    .allowsHitTesting(false)
-            }
+            .background { CanvasGrid().allowsHitTesting(false) }
         }
     }
 
     private var header: some View {
-        HStack(alignment: .firstTextBaseline) {
-            VStack(alignment: .leading, spacing: 3) {
-                Text("Interaction Flow")
-                    .font(.title2.weight(.semibold))
-                Text("Drag interactions here and reorder them into a sequence.")
-                    .font(.subheadline)
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 5) {
+                HStack(spacing: 9) {
+                    Text("Interaction Flow")
+                        .font(.title2.weight(.semibold))
+                    Text("\(store.project.steps.count)")
+                        .font(.caption.monospacedDigit().weight(.medium))
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 3)
+                        .background(.quaternary, in: Capsule())
+                        .accessibilityLabel("\(store.project.steps.count) steps")
+                }
+                Text("A sequence of small, useful interactions.")
+                    .font(.caption)
                     .foregroundStyle(.secondary)
             }
-            Spacer()
-            Text("\(store.project.steps.count) step\(store.project.steps.count == 1 ? "" : "s")")
-                .font(.caption.monospacedDigit())
-                .foregroundStyle(.secondary)
+            Spacer(minLength: 0)
+            AddInteractionMenu(store: store)
+                .menuStyle(.borderlessButton)
         }
-        .padding(.bottom, 24)
+        .padding(20)
     }
 
     private var emptyState: some View {
-        VStack(spacing: 14) {
-            Image(systemName: "point.3.connected.trianglepath.dotted")
-                .font(.system(size: 42))
+        VStack(spacing: 16) {
+            Image(systemName: "square.stack.3d.up")
+                .font(.system(size: 38, weight: .light))
                 .foregroundStyle(Color.accentColor)
-            Text("Build your first interaction")
-                .font(.headline)
-            Text("Drag a type from the palette, or click one to add it.")
+                .frame(width: 80, height: 80)
+                .background(Color.accentColor.opacity(0.08), in: RoundedRectangle(cornerRadius: 22))
+            Text("Every flow starts with a step")
+                .font(.title3.weight(.semibold))
+            Text("Add a message, ask a question, or collect a file.\nYour interactions run in order, from top to bottom.")
+                .font(.subheadline)
                 .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+            AddInteractionMenu(store: store)
         }
-        .padding(36)
+        .padding(.vertical, 50)
+        .padding(.horizontal, 24)
         .frame(maxWidth: .infinity)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
+        .overlay {
+            RoundedRectangle(cornerRadius: 16)
+                .strokeBorder(isEndTarget ? Color.accentColor : Color.secondary.opacity(0.2), style: StrokeStyle(lineWidth: 1, dash: [5]))
+        }
+        .onDrop(of: [.studioInteraction], delegate: endDropDelegate)
     }
 
     private var connector: some View {
-        VStack(spacing: 0) {
-            Rectangle().fill(.tertiary).frame(width: 2, height: 18)
-            Image(systemName: "chevron.down")
-                .font(.caption2.weight(.bold))
-                .foregroundStyle(.tertiary)
-            Rectangle().fill(.tertiary).frame(width: 2, height: 8)
-        }
+        Rectangle()
+            .fill(Color.secondary.opacity(0.22))
+            .frame(width: 1, height: 26)
+            .accessibilityHidden(true)
     }
 
-    private var endCap: some View {
-        Label("Result", systemImage: "flag.checkered")
+    private func endpoint(_ title: String, icon: String) -> some View {
+        Label(title, systemImage: icon)
             .font(.caption.weight(.medium))
             .foregroundStyle(.secondary)
             .padding(.horizontal, 12)
             .padding(.vertical, 7)
-            .background(.quaternary.opacity(0.5), in: Capsule())
+            .background(.regularMaterial, in: Capsule())
+            .overlay(Capsule().strokeBorder(Color.secondary.opacity(0.15)))
+    }
+
+    private var addStepTarget: some View {
+        HStack {
+            AddInteractionMenu(store: store)
+                .menuStyle(.borderlessButton)
+            Spacer()
+            Text("or drop here")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .padding(16)
+        .background(isEndTarget ? Color.accentColor.opacity(0.08) : Color.clear)
+        .overlay {
+            RoundedRectangle(cornerRadius: 12)
+                .strokeBorder(isEndTarget ? Color.accentColor : Color.secondary.opacity(0.25), style: StrokeStyle(lineWidth: 1, dash: [5]))
+        }
+        .contentShape(Rectangle())
+        .onDrop(of: [.studioInteraction], delegate: endDropDelegate)
+    }
+
+    private var endDropDelegate: FlowDropDelegate {
+        FlowDropDelegate(targetID: nil, store: store, dragItem: $dragItem, dropTarget: $dropTarget, isEndTarget: $isEndTarget)
     }
 }
 
-private struct FlowStepCard: View {
-    let step: StudioStep
-    let index: Int
-    let selected: Bool
-    let select: () -> Void
-    let beginDrag: () -> Void
-
+private struct CanvasGrid: View {
     var body: some View {
-        Button(action: select) {
-            HStack(spacing: 14) {
-                Image(systemName: "line.3.horizontal")
-                    .foregroundStyle(.tertiary)
-                ZStack {
-                    RoundedRectangle(cornerRadius: 10)
-                        .fill(Color.accentColor.opacity(0.14))
-                    Image(systemName: step.uiType.studioIcon)
-                        .font(.title2)
-                        .foregroundStyle(Color.accentColor)
+        Canvas { context, size in
+            var dots = Path()
+            for x in stride(from: 12.0, through: size.width, by: 24) {
+                for y in stride(from: 12.0, through: size.height, by: 24) {
+                    dots.addEllipse(in: CGRect(x: x, y: y, width: 1.5, height: 1.5))
                 }
-                .frame(width: 46, height: 46)
-
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack(spacing: 7) {
-                        Text("\(index + 1)")
-                            .font(.caption2.monospacedDigit().weight(.bold))
-                            .foregroundStyle(.secondary)
-                        Text(step.uiType.studioTitle)
-                            .font(.headline)
-                    }
-                    Text(step.summary)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(2)
-                }
-                Spacer()
-                Image(systemName: "chevron.right")
-                    .foregroundStyle(.tertiary)
             }
-            .padding(14)
-            .contentShape(Rectangle())
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 13))
-            .overlay {
-                RoundedRectangle(cornerRadius: 13)
-                    .stroke(selected ? Color.accentColor : Color.secondary.opacity(0.16), lineWidth: selected ? 2 : 1)
-            }
+            context.fill(dots, with: .color(.secondary.opacity(0.15)))
         }
-        .buttonStyle(.plain)
-        .onDrag {
-            beginDrag()
-            return NSItemProvider(object: "step:\(step.id.uuidString)" as NSString)
-        }
+        .accessibilityHidden(true)
     }
 }
 
-private struct FlowCardDropDelegate: DropDelegate {
-    let targetID: UUID
+private struct FlowDropDelegate: DropDelegate {
+    let targetID: UUID?
     @ObservedObject var store: StudioStore
     @Binding var dragItem: StudioDragItem?
+    @Binding var dropTarget: UUID?
+    @Binding var isEndTarget: Bool
+
+    func validateDrop(info: DropInfo) -> Bool {
+        dragItem != nil && info.hasItemsConforming(to: [.studioInteraction])
+    }
 
     func dropEntered(info: DropInfo) {
-        switch dragItem {
+        guard validateDrop(info: info) else { return }
+        dropTarget = targetID
+        isEndTarget = targetID == nil
+    }
+
+    func dropExited(info: DropInfo) {
+        if dropTarget == targetID { dropTarget = nil }
+        if targetID == nil { isEndTarget = false }
+    }
+
+    func performDrop(info: DropInfo) -> Bool {
+        guard validateDrop(info: info), let item = dragItem else { return false }
+        // Commit on drop so hovering or cancelling never changes the project.
+        switch item {
         case .palette(let type):
-            let index = store.project.steps.firstIndex(where: { $0.id == targetID }) ?? store.project.steps.count
-            dragItem = .step(store.add(type, at: index))
+            let index = targetID.flatMap { id in store.project.steps.firstIndex { $0.id == id } }
+            store.add(type, at: index)
         case .step(let id):
-            store.move(stepID: id, before: targetID)
-        case .none:
-            break
+            if let targetID { store.move(stepID: id, before: targetID) }
+            else { store.moveToEnd(stepID: id) }
+            store.selection = id
         }
-    }
-
-    func performDrop(info: DropInfo) -> Bool {
         dragItem = nil
+        dropTarget = nil
+        isEndTarget = false
         return true
     }
 
-    func dropUpdated(info: DropInfo) -> DropProposal? { DropProposal(operation: .move) }
-}
-
-private struct FlowEndDropDelegate: DropDelegate {
-    @ObservedObject var store: StudioStore
-    @Binding var dragItem: StudioDragItem?
-    @Binding var isTargeted: Bool
-
-    func validateDrop(info: DropInfo) -> Bool { true }
-
-    func dropEntered(info: DropInfo) { isTargeted = true }
-    func dropExited(info: DropInfo) { isTargeted = false }
-
-    func performDrop(info: DropInfo) -> Bool {
-        switch dragItem {
-        case .palette(let type): _ = store.add(type)
-        case .step(let id): store.moveToEnd(stepID: id)
-        case .none: break
-        }
-        dragItem = nil
-        isTargeted = false
-        return true
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        DropProposal(operation: dragItem == nil ? .forbidden : .move)
     }
-
-    func dropUpdated(info: DropInfo) -> DropProposal? { DropProposal(operation: .move) }
 }

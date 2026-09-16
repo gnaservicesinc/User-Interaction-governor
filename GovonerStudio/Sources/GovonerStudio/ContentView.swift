@@ -5,6 +5,7 @@ import UniformTypeIdentifiers
 
 struct ContentView: View {
     @StateObject private var store = StudioStore()
+    @ObservedObject private var recentProjects = RecentProjectsStore.shared
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State private var dragItem: StudioDragItem?
     @State private var importingProject = false
@@ -15,10 +16,11 @@ struct ContentView: View {
     @State private var showBashPreview = false
     @State private var bashPreview = ""
     @State private var errorMessage: String?
+    @State private var isStartingPreview = false
 
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
-            PaletteView(store: store, dragItem: $dragItem)
+            PaletteView(store: store, recentProjects: recentProjects, dragItem: $dragItem, openRecent: openProjectURL)
                 .navigationSplitViewColumnWidth(min: 220, ideal: 250, max: 300)
         } content: {
             FlowCanvasView(store: store, dragItem: $dragItem)
@@ -27,9 +29,13 @@ struct ContentView: View {
             inspector
                 .navigationSplitViewColumnWidth(min: 300, ideal: 340, max: 430)
         }
-        .navigationTitle(store.project.name)
+        .navigationTitle(store.project.name.isEmpty ? "Untitled Interaction" : store.project.name)
+        .safeAreaInset(edge: .bottom, spacing: 0) { statusBar }
         .toolbar { toolbar }
         .focusedSceneValue(\.studioCommandActions, commandActions)
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            recentProjects.refresh()
+        }
         .fileImporter(
             isPresented: $importingProject,
             allowedContentTypes: [.govonerStudioProject, .json],
@@ -41,7 +47,7 @@ struct ContentView: View {
             document: projectDocument,
             contentType: .govonerStudioProject,
             defaultFilename: safeFilename(store.project.name) + ".govonerstudio",
-            onCompletion: handleExport
+            onCompletion: handleProjectExport
         )
         .fileExporter(
             isPresented: $exportingBash,
@@ -51,7 +57,7 @@ struct ContentView: View {
             onCompletion: handleExport
         )
         .sheet(isPresented: $showBashPreview) {
-            BashPreviewView(text: bashPreview, copy: copyBash, save: saveBash)
+            BashPreviewView(text: bashPreview, filename: store.project.functionName + ".sh", copy: copyBash, save: saveBash)
         }
         .alert(
             "Govoner Studio",
@@ -69,6 +75,7 @@ struct ContentView: View {
         if let selection = store.selection,
            let index = store.project.steps.firstIndex(where: { $0.id == selection }) {
             StepInspectorView(step: $store.project.steps[index], index: index)
+                .id(selection)
         } else {
             VStack(spacing: 12) {
                 Image(systemName: "sidebar.right")
@@ -87,47 +94,69 @@ struct ContentView: View {
 
     @ToolbarContentBuilder
     private var toolbar: some ToolbarContent {
+        ToolbarItem(placement: .navigation) {
+            Menu {
+                Button("New Project", action: store.newProject)
+                Button("Open Project…") { importingProject = true }
+                Menu("Open Recent") {
+                    RecentProjectMenuItems(urls: recentProjects.urls, open: openProjectURL, clear: recentProjects.clear)
+                }
+                Divider()
+                Button("Save Project As…", action: saveProject)
+            } label: {
+                Label("Project", systemImage: "folder")
+            }
+            .help("New, open, or save a project")
+        }
+
         ToolbarItemGroup(placement: .primaryAction) {
+            Menu {
+                Button("Preview Script…", action: previewBash)
+                Button("Copy Script", action: copyBash)
+                Divider()
+                Button("Save Script…", action: saveBash)
+            } label: {
+                Label("Export Bash", systemImage: "square.and.arrow.up")
+            }
+            .disabled(store.project.steps.isEmpty)
+            .help("Preview, copy, or save the Bash script")
+
             Button(action: runPreview) {
-                Label("Run Preview", systemImage: "play.fill")
+                Label(isStartingPreview ? "Starting…" : "Run Preview", systemImage: "play.fill")
+                    .labelStyle(.titleAndIcon)
             }
-            .help("Run this flow with The Govoner")
-
-            Button(action: previewBash) {
-                Label("Bash", systemImage: "chevron.left.forwardslash.chevron.right")
-            }
-            .help("Preview the generated Bash functions")
-
-            Button(action: copyBash) {
-                Label("Copy", systemImage: "doc.on.doc")
-            }
-            .help("Copy the Bash functions")
-        }
-
-        ToolbarItemGroup(placement: .secondaryAction) {
-            Button(action: store.duplicateSelected) {
-                Label("Duplicate", systemImage: "plus.square.on.square")
-            }
-            .disabled(store.selection == nil)
-
-            Button(role: .destructive, action: store.removeSelected) {
-                Label("Delete", systemImage: "trash")
-            }
-            .disabled(store.selection == nil)
-        }
-
-        ToolbarItem(placement: .status) {
-            HStack(spacing: 6) {
-                Circle()
-                    .fill(store.previewStatus == "Ready" ? Color.secondary : Color.accentColor)
-                    .frame(width: 7, height: 7)
-                Text(store.previewStatus)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
+            .buttonStyle(.borderedProminent)
+            .disabled(!canRunPreview)
+            .help("Run this flow with The Govoner (⌘R)")
         }
     }
+
+    private var statusBar: some View {
+        VStack(spacing: 0) {
+            Divider()
+            HStack(spacing: 8) {
+                if isStartingPreview {
+                    ProgressView().controlSize(.mini)
+                } else {
+                    Image(systemName: store.previewStatus == "Preview failed" ? "exclamationmark.circle" : "checkmark.circle")
+                        .foregroundStyle(store.previewStatus == "Preview failed" ? Color.orange : Color.secondary)
+                }
+                Text(store.previewStatus)
+                    .lineLimit(1)
+                    .help(store.previewStatus)
+                Spacer()
+                Text("⌘R to preview")
+                    .foregroundStyle(.tertiary)
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+        }
+        .background(.bar)
+    }
+
+    private var canRunPreview: Bool { !isStartingPreview && !store.project.steps.isEmpty }
 
     private var commandActions: StudioCommandActions {
         StudioCommandActions(
@@ -135,20 +164,38 @@ struct ContentView: View {
             openProject: { importingProject = true },
             saveProject: saveProject,
             copyBash: copyBash,
-            runPreview: runPreview
+            runPreview: runPreview,
+            canRunPreview: canRunPreview,
+            recentProjects: recentProjects.urls,
+            openRecentProject: openProjectURL,
+            clearRecentProjects: recentProjects.clear
         )
     }
 
     private func openProject(_ result: Result<[URL], Error>) {
         do {
             guard let url = try result.get().first else { return }
+            openProjectURL(url)
+        } catch {
+            errorMessage = "Could not open the project: \(error.localizedDescription)"
+        }
+    }
+
+    private func openProjectURL(_ url: URL) {
+        do {
             let access = url.startAccessingSecurityScopedResource()
             defer { if access { url.stopAccessingSecurityScopedResource() } }
             let data = try Data(contentsOf: url)
             store.load(try JSONDecoder().decode(StudioProject.self, from: data))
+            recentProjects.record(url)
         } catch {
-            errorMessage = "Could not open the project: \(error.localizedDescription)"
+            errorMessage = "Could not open \(url.lastPathComponent): \(error.localizedDescription)"
         }
+    }
+
+    private func handleProjectExport(_ result: Result<URL, Error>) {
+        if case .success(let url) = result { recentProjects.record(url) }
+        handleExport(result)
     }
 
     private func saveProject() {
@@ -188,15 +235,18 @@ struct ContentView: View {
     }
 
     private func runPreview() {
+        guard canRunPreview else { return }
         do {
             _ = try store.project.validatedDefinitions()
         } catch {
             errorMessage = error.localizedDescription
             return
         }
+        isStartingPreview = true
         store.previewStatus = "Starting preview…"
         let project = store.project
         Task {
+            defer { isStartingPreview = false }
             do {
                 let uuid = try await StudioPreviewRunner.run(project)
                 store.previewUUID = uuid

@@ -73,6 +73,14 @@ final class StudioStore: ObservableObject {
         previewUUID = nil
     }
 
+    func moveStep(_ stepID: UUID, by offset: Int) {
+        guard let source = project.steps.firstIndex(where: { $0.id == stepID }),
+              project.steps.indices.contains(source + offset) else { return }
+        let step = project.steps.remove(at: source)
+        project.steps.insert(step, at: source + offset)
+        selection = stepID
+    }
+
     func bash() throws -> String { try BashExporter.export(project) }
 
     private static var autosaveURL: URL {

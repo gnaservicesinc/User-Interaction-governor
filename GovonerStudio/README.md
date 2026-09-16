@@ -4,6 +4,13 @@ Govoner Studio is the native visual authoring companion for The Govoner. Drag in
 
 Studio projects are JSON documents with the `.govonerstudio` extension. The editor also keeps a best-effort autosave of the last project under the user's Application Support directory.
 
+## Editor
+
+- Use **Recent Projects** in the sidebar or **File → Open Recent** to reopen a project. Successfully opening or saving a Studio project updates the macOS recent-document list; Bash exports are excluded. **Clear Recent Projects** clears only the history, not the project files.
+- Add steps from the interaction library or **Add Step**. Cards show their message and key settings; select a card to configure it in the inspector.
+- Use a card's action menu to duplicate, move, or delete it. Dragging shows an insertion marker and changes the flow only when dropped.
+- **Run Preview** (⌘R) runs the flow. **Export Bash** groups script preview, copy, and save, with line numbers and copy feedback in the preview.
+
 ## Bash export contract
 
 Every export contains a guarded shared runtime followed by the project-specific function. The runtime declares one reusable set of Bash associative arrays:
