@@ -59,24 +59,26 @@ public final class IPCClient: @unchecked Sendable {
     public init(paths: RuntimePaths = runtimePathsFromEnvironment()) { self.paths = paths }
 
     public func send(_ request: IPCRequest, autostart: Bool = true) throws -> IPCResponse {
-        do { return try sendOnce(request) }
+        let descriptor = try connect(autostart: autostart)
+        defer { close(descriptor) }
+        // Once sent, a request may already be committed. Never replay it after a lost reply.
+        try IPCWire.send(request, descriptor: descriptor)
+        return try IPCWire.receive(IPCResponse.self, descriptor: descriptor)
+    }
+
+    private func connect(autostart: Bool) throws -> Int32 {
+        do { return try UnixSocket.connect(path: paths.socket.path) }
         catch {
             guard autostart else { throw error }
             try startService()
             var lastError: Error = error
             for delay in [20_000, 40_000, 80_000, 160_000, 300_000, 500_000, 800_000, 1_000_000] {
                 usleep(useconds_t(delay))
-                do { return try sendOnce(request) } catch { lastError = error }
+                do { return try UnixSocket.connect(path: paths.socket.path) }
+                catch { lastError = error }
             }
             throw lastError
         }
-    }
-
-    private func sendOnce(_ request: IPCRequest) throws -> IPCResponse {
-        let descriptor = try UnixSocket.connect(path: paths.socket.path)
-        defer { close(descriptor) }
-        try IPCWire.send(request, descriptor: descriptor)
-        return try IPCWire.receive(IPCResponse.self, descriptor: descriptor)
     }
 
     private func startService() throws {
@@ -104,6 +106,7 @@ public enum UnixSocket {
     public static func connect(path: String) throws -> Int32 {
         let descriptor = socket(AF_UNIX, SOCK_STREAM, 0)
         guard descriptor >= 0 else { throw StructuredError("BACKEND_UNAVAILABLE", "cannot create IPC socket") }
+        _ = fcntl(descriptor, F_SETFD, FD_CLOEXEC)
         var noPipe: Int32 = 1
         _ = setsockopt(descriptor, SOL_SOCKET, SO_NOSIGPIPE, &noPipe, socklen_t(MemoryLayout<Int32>.size))
         do {
@@ -125,6 +128,7 @@ public enum UnixSocket {
         unlink(path)
         let descriptor = socket(AF_UNIX, SOCK_STREAM, 0)
         guard descriptor >= 0 else { throw StructuredError("IO_ERROR", "cannot create service socket") }
+        _ = fcntl(descriptor, F_SETFD, FD_CLOEXEC)
         var noPipe: Int32 = 1
         _ = setsockopt(descriptor, SOL_SOCKET, SO_NOSIGPIPE, &noPipe, socklen_t(MemoryLayout<Int32>.size))
         do {

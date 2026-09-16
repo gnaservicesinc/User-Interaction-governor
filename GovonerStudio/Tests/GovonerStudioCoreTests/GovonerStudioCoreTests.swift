@@ -198,3 +198,93 @@ private func runShell(_ script: String) throws {
     process.waitUntilExit()
     #expect(process.terminationStatus == 0)
 }
+
+@Test func exportedArgumentsPreserveNegativeAndOptionLikeValues() throws {
+    var entry = StudioStep.template(for: .entry)
+    entry.entryType = "number"
+    entry.defaultValue = "-2.5"
+    entry.minimum = "-10"
+    entry.message = "--literal message"
+    let parsed = try ArgumentParser.parse(["--new"] + entry.commandArguments())
+    let definition = try DefinitionValidator.step(options: parsed.options, flags: parsed.flags, workingDirectory: "/")
+    #expect(definition.defaultValue == "-2.5")
+    #expect(definition.min == "-10")
+    #expect(definition.message == "--literal message")
+}
+
+@Test func exportedFunctionCannotShadowRuntimeOrShellSyntax() {
+    for name in ["if", "time", "govoner_poll", "govoner_wait", "govoner_end", "local", "command"] {
+        #expect(throws: StudioValidationError.self) {
+            try BashExporter.export(StudioProject(functionName: name))
+        }
+    }
+}
+
+@Test func exportPropagatesRuntimeVersionFailure() throws {
+    let runtime = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        .appendingPathComponent("Components/govoner-runtime.sh")
+    let script = try BashExporter.export(.starter, runtimePath: runtime.path) + "\necho should-not-run\n"
+    let result = try ProcessCapture.run(URL(fileURLWithPath: "/bin/bash"), arguments: ["-c", script])
+    #expect(result.status == 2)
+    #expect(result.output.isEmpty)
+    #expect(String(decoding: result.error, as: UTF8.self).contains("Bash 4 or newer"))
+}
+
+@Test func managedUpdatePreservesMarkerTextAndIsIdempotent() throws {
+    let project = StudioProject.starter
+    let original = "#!/bin/bash\nprintf '%s\\n' '\(BashExporter.managedEndMarker)'\necho keep\n"
+    let once = try BashExporter.updating(script: original, with: project)
+    #expect(once.hasSuffix(String(original.dropFirst("#!/bin/bash\n".count))))
+    #expect(try BashExporter.updating(script: once, with: project) == once)
+    let withoutFinalNewline = try BashExporter.export(project).trimmingCharacters(in: .newlines)
+    let updated = try BashExporter.updating(script: withoutFinalNewline, with: StudioProject(functionName: "replacement"))
+    #expect(!updated.contains("run_govoner_interaction()"))
+    #expect(updated.contains("replacement()"))
+    var step = StudioStep.template(for: .display)
+    step.message = "start\n\(BashExporter.managedEndMarker)\nend"
+    let embedded = try BashExporter.export(StudioProject(steps: [step])) + "echo keep\n"
+    let replaced = try BashExporter.updating(script: embedded, with: project)
+    #expect(replaced.hasSuffix("echo keep\n"))
+    #expect(!replaced.contains("end'"))
+    let quoted = BashExporter.shellQuote(step.message)
+    let roundTrip = try ProcessCapture.run(URL(fileURLWithPath: "/bin/bash"), arguments: ["-c", "printf %s " + quoted])
+    #expect(String(decoding: roundTrip.output, as: UTF8.self) == step.message)
+}
+
+@Test func installAndUninstallRejectInvalidLocations() throws {
+    let bundled = URL(fileURLWithPath: "/unused")
+    for path in ["", "relative", "/", "/Users/..", "/tmp/bad\npath"] {
+        let location = UGLInstallLocation(layout: .prefix, selectedPath: path)
+        #expect(throws: UGLInstallationPlanError.self) {
+            try UGLInstallPlan.installScript(location: location, bundledRoot: bundled)
+        }
+        #expect(throws: UGLInstallationPlanError.self) {
+            try UGLInstallPlan.uninstallScript(location: location)
+        }
+    }
+}
+
+@Test func managedUpdatesHandleCRLFAndRejectMisleadingShebangs() throws {
+    let original = "#!/usr/bin/env bash\r\necho keep\r\n"
+    let updated = try BashExporter.updating(script: original, with: .starter)
+    #expect(updated.hasSuffix("echo keep\r\n"))
+    #expect(try BashExporter.updating(script: updated, with: .starter) == updated)
+    for shebang in ["#!/usr/bin/env python3 # bash", "#!/bin/notbash"] {
+        #expect(throws: StudioValidationError.self) {
+            try BashExporter.updating(script: shebang + "\necho keep\n", with: .starter)
+        }
+    }
+}
+
+@Test func studioDoesNotSilentlyDiscardInvalidNumericSettings() throws {
+    var media = StudioStep.template(for: .media)
+    media.mediaPath = "/tmp/image.png"
+    for invalid in [-1, Double.infinity, Double.nan] {
+        media.autoClose = invalid
+        #expect(throws: StudioValidationError.self) { try media.definition() }
+    }
+    var entry = StudioStep.template(for: .entry)
+    entry.maxLength = -1
+    #expect(throws: StudioValidationError.self) { try entry.commandArguments() }
+}

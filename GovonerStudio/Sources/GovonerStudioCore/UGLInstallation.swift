@@ -48,10 +48,10 @@ public struct UGLInstallLocation: Equatable, Sendable {
 
     public init(layout: UGLInstallLayout, selectedPath: String) {
         self.layout = layout
-        self.selectedPath = URL(fileURLWithPath: selectedPath).standardizedFileURL.path
+        self.selectedPath = selectedPath
     }
 
-    public var root: URL { URL(fileURLWithPath: selectedPath, isDirectory: true) }
+    public var root: URL { URL(fileURLWithPath: selectedPath, isDirectory: true).standardizedFileURL }
 
     public var payloadRoot: URL {
         switch layout {
@@ -166,7 +166,8 @@ public enum UGLInstallPlan {
         return lines.joined(separator: "\n")
     }
 
-    public static func uninstallScript(location: UGLInstallLocation) -> String {
+    public static func uninstallScript(location: UGLInstallLocation) throws -> String {
+        try validate(location)
         var lines = ["set -eu"]
         for component in uglComponents {
             lines.append("/bin/rm -f -- \(shellQuote(location.installedURL(for: component).path)) \(shellQuote(location.versionURL(for: component).path))")
@@ -192,7 +193,7 @@ public enum UGLInstallPlan {
 
     private static func validate(_ location: UGLInstallLocation) throws {
         let path = location.selectedPath
-        guard path.first == "/", !path.contains("\n"), !path.contains("\r") else {
+        guard path.first == "/", !path.contains("\n"), !path.contains("\r"), !path.contains("\0") else {
             throw UGLInstallationPlanError("Choose an absolute installation path.")
         }
         guard location.root.path != "/" else {

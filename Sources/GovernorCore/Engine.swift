@@ -38,7 +38,6 @@ public final class GovernorEngine: @unchecked Sendable {
     private let supervisor: RendererSupervisor
     private var workers: [String: RendererHandle] = [:]
     private var waiters: [String: StartWaiter] = [:]
-    private var intentionallyStopping: Set<String> = []
     private let maximumRenderers = 32
 
     public init(store: SQLiteStore, paths: RuntimePaths, supervisor: RendererSupervisor) throws {
@@ -49,6 +48,8 @@ public final class GovernorEngine: @unchecked Sendable {
     }
 
     public func handle(_ request: IPCRequest) -> IPCResponse {
+        var request = request
+        request.uuid = request.uuid?.lowercased()
         do {
             if request.action == .trigger {
                 return try trigger(request)
@@ -65,24 +66,26 @@ public final class GovernorEngine: @unchecked Sendable {
         queue.async {
             do {
                 for record in try self.store.allRecords() {
-                    if self.isExpired(record) {
-                        try self.endLocked(record, expiry: true)
-                        continue
-                    }
-                    let exitExists = safeProtocolSignalExists(record.paths.exitPath)
-                    let triggerExists = safeProtocolSignalExists(record.paths.triggerPath)
-                    if exitExists {
-                        _ = unlink(record.paths.exitPath)
-                        try self.endLocked(record, expiry: false)
-                    } else if triggerExists {
-                        _ = unlink(record.paths.triggerPath)
-                        if record.state == .setup {
-                            let request = IPCRequest(action: .trigger, uuid: record.uuid, options: [:], flags: [], reset: [], workingDirectory: "/", sessionId: record.sessionId)
-                            DispatchQueue.global(qos: .userInitiated).async { _ = self.handle(request) }
+                    do {
+                        if self.isExpired(record) {
+                            try self.endLocked(record, expiry: true)
+                            continue
                         }
-                    } else if record.state == .postRun, record.deliveryError != nil {
-                        try? self.publishCompletionLocked(uuid: record.uuid)
-                    }
+                        let exitExists = safeProtocolSignalExists(record.paths.exitPath)
+                        let triggerExists = safeProtocolSignalExists(record.paths.triggerPath)
+                        if exitExists {
+                            _ = unlink(record.paths.exitPath)
+                            try self.endLocked(record, expiry: false)
+                        } else if triggerExists {
+                            _ = unlink(record.paths.triggerPath)
+                            if record.state == .setup {
+                                let request = IPCRequest(action: .trigger, uuid: record.uuid, options: [:], flags: [], reset: [], workingDirectory: "/", sessionId: record.sessionId)
+                                DispatchQueue.global(qos: .userInitiated).async { _ = self.handle(request) }
+                            }
+                        } else if record.state == .postRun, record.deliveryError != nil {
+                            try? self.publishCompletionLocked(uuid: record.uuid)
+                        }
+                    } catch { continue }
                 }
                 try self.retryTombstonesLocked()
             } catch {
@@ -157,7 +160,7 @@ public final class GovernorEngine: @unchecked Sendable {
             let record = InteractionRecord(
                 schemaVersion: schemaVersion, uuid: uuid, ownerUid: getuid(), sessionId: request.sessionId,
                 createdAt: TimeStamp.string(now), initialLifetimeSeconds: lifetime,
-                expiresAt: TimeStamp.string(now.addingTimeInterval(TimeInterval(lifetime))), definitionRevision: 1,
+                expiresAt: try expirationString(now.addingTimeInterval(TimeInterval(lifetime))), definitionRevision: 1,
                 runNumber: 0, state: .setup, phase: "idle", stackLocked: false,
                 definition: definition, paths: protocolPaths,
                 explicitlyRequestedUuidPath: request.options["uuid-path"] != nil,
@@ -223,7 +226,7 @@ public final class GovernorEngine: @unchecked Sendable {
         let timeout = try parsePositiveTimeout(request.options["start-timeout"]?.last, defaultValue: 10)
         let waiter: StartWaiter = try queue.sync { try beginTriggerLocked(request) }
         if waiter.semaphore.wait(timeout: .now() + timeout) == .timedOut {
-            let didAbort = queue.sync { self.timeoutTriggerLocked(uuid: request.uuid!) }
+            let didAbort = queue.sync { self.timeoutTriggerLocked(uuid: request.uuid!, waiter: waiter) }
             if didAbort { throw StructuredError("START_TIMEOUT", "renderer did not present its first window before the startup deadline", retryable: true) }
         }
         if let error = waiter.error { throw error }
@@ -306,6 +309,7 @@ public final class GovernorEngine: @unchecked Sendable {
                 result.uuid = record.uuid
                 result.runNumber = record.runNumber
                 record.result = result
+                record.deliveryError = ResultError(StructuredError("IO_ERROR", "completion delivery pending", retryable: true))
                 record.state = .postRun
                 record.phase = "completed"
                 record.workerToken = nil
@@ -314,6 +318,7 @@ public final class GovernorEngine: @unchecked Sendable {
                 record.partialResults = result.steps
                 try store.update(record)
                 workers.removeValue(forKey: record.uuid)
+                waiters.removeValue(forKey: record.uuid)?.finish(StructuredError("RENDERER_CRASH", "renderer completed without acknowledging presentation"))
                 try publishCompletionLocked(uuid: record.uuid)
             case .failed:
                 try finalizeFailureLocked(uuid: record.uuid, error: event.error ?? StructuredError("RENDERER_CRASH", "renderer failed"), closeReason: "renderer_error")
@@ -324,16 +329,13 @@ public final class GovernorEngine: @unchecked Sendable {
     }
 
     private func rendererTerminatedLocked(uuid: String, runNumber: Int, token: String, status: Int32) {
-        workers.removeValue(forKey: uuid)
-        if intentionallyStopping.remove(uuid) != nil { return }
         guard let record = try? store.record(uuid: uuid),
               record.state == .live, record.runNumber == runNumber, record.workerToken == token else { return }
         try? finalizeFailureLocked(uuid: uuid, error: StructuredError("RENDERER_CRASH", "renderer exited unexpectedly (status \(status))", retryable: true), closeReason: "renderer_error")
     }
 
-    private func timeoutTriggerLocked(uuid: String) -> Bool {
-        guard let record = try? store.record(uuid: uuid), record.state == .live, record.phase == "starting" else { return false }
-        intentionallyStopping.insert(uuid)
+    private func timeoutTriggerLocked(uuid: String, waiter: StartWaiter) -> Bool {
+        guard waiters[uuid] === waiter, let record = try? store.record(uuid: uuid), record.state == .live, record.phase == "starting" else { return false }
         workers.removeValue(forKey: uuid)?.stop()
         try? finalizeFailureLocked(uuid: uuid, error: StructuredError("START_TIMEOUT", "renderer startup timed out", retryable: true), closeReason: "timeout")
         return true
@@ -402,9 +404,9 @@ public final class GovernorEngine: @unchecked Sendable {
         record = try existingRecordLocked(uuid)
         let current = TimeStamp.date(record.expiresAt) ?? Date()
         if let addition = try DefinitionValidator.extensionDuration(options: request.options) {
-            record.expiresAt = TimeStamp.string(current.addingTimeInterval(TimeInterval(addition)))
+            record.expiresAt = try expirationString(current.addingTimeInterval(TimeInterval(addition)))
         } else {
-            record.expiresAt = TimeStamp.string(max(current, Date().addingTimeInterval(TimeInterval(record.initialLifetimeSeconds))))
+            record.expiresAt = try expirationString(max(current, Date().addingTimeInterval(TimeInterval(record.initialLifetimeSeconds))))
         }
         try store.update(record)
         return .empty
@@ -420,7 +422,6 @@ public final class GovernorEngine: @unchecked Sendable {
 
     private func endLocked(_ record: InteractionRecord, expiry: Bool) throws {
         if record.state == .live {
-            intentionallyStopping.insert(record.uuid)
             workers.removeValue(forKey: record.uuid)?.stop()
             waiters.removeValue(forKey: record.uuid)?.finish(StructuredError("NOT_FOUND", expiry ? "interaction expired" : "interaction ended"))
         }
@@ -472,7 +473,7 @@ public final class GovernorEngine: @unchecked Sendable {
         guard var record = try store.record(uuid: uuid), record.state == .live else { return }
         let now = Date()
         var results = record.partialResults.sorted { $0.index < $1.index }
-        let active = record.currentStepIndex ?? results.count
+        let active = max(record.currentStepIndex ?? 0, results.count)
         if record.definition.steps.indices.contains(active), !results.contains(where: { $0.index == active }) {
             var failed = StepResult(index: active, uiType: record.definition.steps[active].uiType, outcome: "failed")
             failed.closeReason = closeReason
@@ -490,6 +491,7 @@ public final class GovernorEngine: @unchecked Sendable {
         let started = results.compactMap(\.shownAt).first
         let length = started.flatMap(TimeStamp.date).map { milliseconds(now.timeIntervalSince($0)) }
         record.result = ResultDocument(uuid: uuid, runNumber: record.runNumber, outcome: "failed", startedAt: started, finishedAt: TimeStamp.string(now), length: length, error: ResultError(error), steps: results.sorted { $0.index < $1.index })
+        record.deliveryError = ResultError(StructuredError("IO_ERROR", "completion delivery pending", retryable: true))
         record.state = .postRun
         record.phase = "completed"
         record.workerToken = nil
@@ -531,6 +533,18 @@ public final class GovernorEngine: @unchecked Sendable {
 
     private func expireIfNeededLocked(_ record: InteractionRecord) throws {
         if isExpired(record) { try endLocked(record, expiry: true); throw StructuredError("NOT_FOUND", "interaction expired") }
+    }
+
+    private func expirationString(_ date: Date) throws -> String {
+        // The persisted ISO-8601 format uses a four-digit year (through 9999).
+        guard date.timeIntervalSince1970 < 253_402_300_800 else {
+            throw StructuredError("INVALID_ARGUMENT", "lifetime exceeds the supported calendar range")
+        }
+        let encoded = TimeStamp.string(date)
+        guard TimeStamp.date(encoded) != nil else {
+            throw StructuredError("INVALID_ARGUMENT", "lifetime cannot be represented")
+        }
+        return encoded
     }
 
     private func isExpired(_ record: InteractionRecord) -> Bool {
@@ -588,7 +602,7 @@ public final class GovernorEngine: @unchecked Sendable {
         if let value = options["path"]?.last { step.path = absolutePath(value, relativeTo: workingDirectory) }
         if let value = options["volume"]?.last { guard let parsed = Int(value) else { throw StructuredError("INVALID_ARGUMENT", "--volume must be a whole number") }; step.volume = parsed }
         if let value = options["plays"]?.last { guard let parsed = Int(value) else { throw StructuredError("INVALID_ARGUMENT", "--plays must be a whole number") }; step.plays = parsed }
-        if let value = options["auto-close"]?.last { guard let parsed = Double(value), parsed > 0 else { throw StructuredError("INVALID_ARGUMENT", "--auto-close must be positive") }; step.autoClose = parsed }
+        if let value = options["auto-close"]?.last { guard let parsed = Double(value), parsed.isFinite, parsed > 0 else { throw StructuredError("INVALID_ARGUMENT", "--auto-close must be positive") }; step.autoClose = parsed }
         if let value = options["entry-type"]?.last { step.entryType = value.lowercased() }
         if let value = options["default"]?.last { step.defaultValue = value }
         if let value = options["max-length"]?.last { guard let parsed = Int(value) else { throw StructuredError("INVALID_ARGUMENT", "--max-length must be a whole number") }; step.maxLength = parsed }

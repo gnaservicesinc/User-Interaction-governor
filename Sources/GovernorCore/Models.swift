@@ -27,7 +27,7 @@ public enum GovernorAction: String, Codable, CaseIterable, Sendable {
     case new, stack, update, trigger, rearm, status, dump, get, extend, end
 }
 
-public struct StructuredError: Codable, Error, Sendable, Equatable {
+public struct StructuredError: Codable, LocalizedError, Sendable, Equatable {
     public let code: String
     public let message: String
     public let retryable: Bool
@@ -37,6 +37,8 @@ public struct StructuredError: Codable, Error, Sendable, Equatable {
         self.message = message
         self.retryable = retryable
     }
+
+    public var errorDescription: String? { message }
 
     public var exitCode: Int32 {
         switch code {

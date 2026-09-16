@@ -27,7 +27,8 @@ public enum AtomicFiles {
         guard manager.fileExists(atPath: parent.path) else {
             throw StructuredError("IO_ERROR", "parent directory does not exist: \(parent.path)")
         }
-        if let existing = self.identity(at: path), existing != identity {
+        let existing = self.identity(at: path)
+        if let existing, existing != identity {
             throw StructuredError("PATH_CONFLICT", "refusing to replace an unrelated file: \(path)")
         }
         let temporary = parent.appendingPathComponent(".uig-\(UUID().uuidString).tmp")
@@ -38,6 +39,7 @@ public enum AtomicFiles {
             var offset = 0
             while offset < raw.count {
                 let count = Darwin.write(fd, raw.baseAddress!.advanced(by: offset), raw.count - offset)
+                if count < 0 && errno == EINTR { continue }
                 if count <= 0 {
                     writeError = StructuredError("IO_ERROR", "cannot write output file: \(path)")
                     break
@@ -51,7 +53,7 @@ public enum AtomicFiles {
             unlink(temporary.path)
             throw writeError
         }
-        if let identity {
+        if let identity, existing != nil {
             guard renameatx_np(AT_FDCWD, temporary.path, AT_FDCWD, path, UInt32(RENAME_SWAP)) == 0 else {
                 unlink(temporary.path)
                 throw StructuredError("IO_ERROR", "cannot atomically replace output file: \(path)")
@@ -63,8 +65,9 @@ public enum AtomicFiles {
             }
             unlink(temporary.path)
         } else if renameatx_np(AT_FDCWD, temporary.path, AT_FDCWD, path, UInt32(RENAME_EXCL)) != 0 {
+            let publishError = errno
             unlink(temporary.path)
-            if errno == EEXIST { throw StructuredError("PATH_CONFLICT", "output file appeared concurrently: \(path)") }
+            if publishError == EEXIST { throw StructuredError("PATH_CONFLICT", "output file appeared concurrently: \(path)") }
             throw StructuredError("IO_ERROR", "cannot publish output file: \(path)")
         }
         let directoryFD = open(parent.path, O_RDONLY | O_CLOEXEC)

@@ -153,7 +153,7 @@ env -i HOME="$HOME" TMPDIR=/tmp PATH=/usr/bin:/bin:/usr/sbin:/sbin \
   /usr/bin/xcrun swift test
 ```
 
-Tests use a fake renderer for lifecycle behavior. `Tests/Fixtures/smoke.svg` supports the real renderer smoke described above.
+Tests use a fake renderer for lifecycle behavior. Run `bash Tests/Runtime/runtime-tests.sh` with Bash 4 or newer to test the shared shell runtime. After a debug build, `python3 Tests/Integration/cli-smoke.py` runs an optional native renderer smoke on an active macOS desktop, briefly showing auto-closing image windows. It also checks rearming, wrapper arguments, large wrapper output, and cleanup with isolated temporary state. Pass a binary directory as its first argument to test another build. `Tests/Fixtures/smoke.svg` supplies the image fixture.
 
 ## License
 

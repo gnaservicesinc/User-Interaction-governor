@@ -50,6 +50,9 @@ private func validateSyntax(_ parsed: ParsedArguments) throws {
     } else {
         guard let uuid = parsed.value("uuid"), UUID(uuidString: uuid) != nil else { throw StructuredError("INVALID_ARGUMENT", "--\(action.rawValue) requires a well-formed --uuid") }
     }
+    if action != .update, !parsed.resets.isEmpty {
+        throw StructuredError("INVALID_ARGUMENT", "--reset is valid only with --update")
+    }
     if action == .get, parsed.value("field") == nil { throw StructuredError("INVALID_ARGUMENT", "--get requires --field") }
     if let format = parsed.value("format") {
         let supported = action == .status ? ["json"] : ["raw", "json"]

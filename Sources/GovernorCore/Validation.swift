@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 public enum DefinitionValidator {
@@ -93,6 +94,9 @@ public enum DefinitionValidator {
             if let plays = step.plays, plays <= 0 { throw StructuredError("INVALID_ARGUMENT", "--plays must be positive") }
             if step.plays != nil && step.forever { throw StructuredError("INVALID_ARGUMENT", "--plays and --forever are mutually exclusive") }
             if step.mediaType == "image" && (step.plays != nil || step.forever || step.volume != nil) { throw StructuredError("INVALID_ARGUMENT", "image media does not accept playback or volume options") }
+            if let autoClose = step.autoClose, !autoClose.isFinite || autoClose <= 0 {
+                throw StructuredError("INVALID_ARGUMENT", "--auto-close must be finite and positive")
+            }
             if step.mediaType != "image" && step.autoClose != nil { throw StructuredError("INVALID_ARGUMENT", "--auto-close is valid only for images") }
         case .entry:
             if step.entryType == nil { step.entryType = "text" }
@@ -104,7 +108,7 @@ public enum DefinitionValidator {
             if step.entryType != "number", step.min != nil || step.max != nil { throw StructuredError("INVALID_ARGUMENT", "--min and --max require number entry") }
             if let min = step.min { _ = try normalizedDecimal(min) }
             if let max = step.max { _ = try normalizedDecimal(max) }
-            if let min = step.min, let max = step.max, try decimal(min) > decimal(max) { throw StructuredError("INVALID_ARGUMENT", "--min must not exceed --max") }
+            if let min = step.min, let max = step.max, try compareDecimals(min, max) == .orderedDescending { throw StructuredError("INVALID_ARGUMENT", "--min must not exceed --max") }
             if let value = step.defaultValue { try validateEntry(value, step: step) }
         case .confirm:
             try nonempty(step.message, "message")
@@ -121,9 +125,9 @@ public enum DefinitionValidator {
             throw StructuredError("INVALID_ARGUMENT", "value exceeds maximum length of \(limit) characters")
         }
         if step.entryType == "number" {
-            let number = try decimal(value)
-            if let min = step.min, number < (try decimal(min)) { throw StructuredError("INVALID_ARGUMENT", "number is below the minimum") }
-            if let max = step.max, number > (try decimal(max)) { throw StructuredError("INVALID_ARGUMENT", "number is above the maximum") }
+            _ = try normalizedDecimal(value)
+            if let min = step.min, try compareDecimals(value, min) == .orderedAscending { throw StructuredError("INVALID_ARGUMENT", "number is below the minimum") }
+            if let max = step.max, try compareDecimals(value, max) == .orderedDescending { throw StructuredError("INVALID_ARGUMENT", "number is above the maximum") }
         }
     }
 
@@ -136,14 +140,40 @@ public enum DefinitionValidator {
         if body.hasPrefix("-") { sign = "-"; body.removeFirst() }
         else if body.hasPrefix("+") { body.removeFirst() }
         let pieces = body.split(separator: ".", maxSplits: 1, omittingEmptySubsequences: false)
-        var whole = String(pieces[0])
-        var fraction = pieces.count == 2 ? String(pieces[1]) : ""
-        while whole.count > 1 && whole.first == "0" { whole.removeFirst() }
-        if whole.isEmpty { whole = "0" }
-        while fraction.last == "0" { fraction.removeLast() }
-        let zero = whole.allSatisfy { $0 == "0" } && fraction.isEmpty
+        let significantWhole = pieces[0].drop(while: { $0 == "0" })
+        let whole = significantWhole.isEmpty ? "0" : String(significantWhole)
+        let fraction = pieces.count > 1
+            ? String(pieces[1].reversed().drop(while: { $0 == "0" }).reversed()) : ""
+        let zero = whole == "0" && fraction.isEmpty
         if zero { sign = "" }
         return sign + whole + (fraction.isEmpty ? "" : "." + fraction)
+    }
+
+    // Compare normalized decimal strings without Foundation Decimal's precision/exponent limits.
+    public static func compareDecimals(_ lhs: String, _ rhs: String) throws -> ComparisonResult {
+        let left = try normalizedDecimal(lhs)
+        let right = try normalizedDecimal(rhs)
+        if left == right { return .orderedSame }
+        let leftNegative = left.hasPrefix("-")
+        let rightNegative = right.hasPrefix("-")
+        if leftNegative != rightNegative { return leftNegative ? .orderedAscending : .orderedDescending }
+        let leftParts = (leftNegative ? String(left.dropFirst()) : left).split(separator: ".")
+        let rightParts = (rightNegative ? String(right.dropFirst()) : right).split(separator: ".")
+        let magnitude: ComparisonResult
+        if leftParts[0].count != rightParts[0].count {
+            magnitude = leftParts[0].count < rightParts[0].count ? .orderedAscending : .orderedDescending
+        } else if leftParts[0] != rightParts[0] {
+            magnitude = leftParts[0] < rightParts[0] ? .orderedAscending : .orderedDescending
+        } else {
+            let lf = leftParts.count > 1 ? String(leftParts[1]) : ""
+            let rf = rightParts.count > 1 ? String(rightParts[1]) : ""
+            let length = max(lf.count, rf.count)
+            let lp = lf + String(repeating: "0", count: length - lf.count)
+            let rp = rf + String(repeating: "0", count: length - rf.count)
+            magnitude = lp < rp ? .orderedAscending : .orderedDescending
+        }
+        if !leftNegative { return magnitude }
+        return magnitude == .orderedAscending ? .orderedDescending : .orderedAscending
     }
 
     public static func decimal(_ input: String) throws -> Decimal {
@@ -188,5 +218,11 @@ public enum DefinitionValidator {
         guard let value else { return nil }
         guard let result = Double(value), result.isFinite, result > 0 else { throw StructuredError("INVALID_ARGUMENT", "--\(name) must be positive") }
         return result
+    }
+}
+
+public func filenameMatchesFilters(_ filename: String, filters: [String]) -> Bool {
+    filters.isEmpty || filters.contains { pattern in
+        pattern.withCString { fnmatch($0, filename, FNM_CASEFOLD) == 0 }
     }
 }

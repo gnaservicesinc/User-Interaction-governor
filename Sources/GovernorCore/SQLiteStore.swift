@@ -188,7 +188,12 @@ public final class SQLiteStore: @unchecked Sendable {
         try prepare(sql, into: &query)
         defer { sqlite3_finalize(query) }
         var results: [Data] = []
-        while sqlite3_step(query) == SQLITE_ROW { results.append(columnData(query, index: 0)) }
+        var status = sqlite3_step(query)
+        while status == SQLITE_ROW {
+            results.append(columnData(query, index: 0))
+            status = sqlite3_step(query)
+        }
+        guard status == SQLITE_DONE else { throw sqliteError("cannot read state") }
         return results
     }
 

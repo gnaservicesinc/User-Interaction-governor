@@ -1,4 +1,5 @@
 import Foundation
+import GovernorCore
 import GovonerStudioCore
 
 enum StudioPreviewRunner {
@@ -28,24 +29,12 @@ enum StudioPreviewRunner {
     }
 
     private static func process(_ executable: URL, _ arguments: [String]) throws -> String {
-        let process = Process()
-        let stdout = Pipe()
-        let stderr = Pipe()
-        process.executableURL = executable
-        process.arguments = arguments
-        process.standardOutput = stdout
-        process.standardError = stderr
-        do {
-            try process.run()
-        } catch {
-            throw PreviewError("Could not launch The Govoner: \(error.localizedDescription)")
-        }
-        process.waitUntilExit()
-        let outputData = stdout.fileHandleForReading.readDataToEndOfFile()
-        let errorData = stderr.fileHandleForReading.readDataToEndOfFile()
-        guard process.terminationStatus == 0 else {
+        let result = try ProcessCapture.run(executable, arguments: arguments)
+        let outputData = result.output
+        let errorData = result.error
+        guard result.status == 0 else {
             let message = String(data: errorData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
-            throw PreviewError(message?.isEmpty == false ? message! : "The Govoner exited with status \(process.terminationStatus).")
+            throw PreviewError(message?.isEmpty == false ? message! : "The Govoner exited with status \(result.status).")
         }
         return String(data: outputData, encoding: .utf8) ?? ""
     }

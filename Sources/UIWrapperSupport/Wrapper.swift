@@ -14,17 +14,12 @@ private var wrapperUIG: URL?
 private var signalSources: [DispatchSourceSignal] = []
 
 private func run(_ executable: URL, _ arguments: [String]) -> ChildResult {
-    let process = Process()
-    let output = Pipe()
-    let error = Pipe()
-    process.executableURL = executable
-    process.arguments = arguments
-    process.standardOutput = output
-    process.standardError = error
-    do { try process.run() }
-    catch { return ChildResult(status: 5, output: Data(), error: Data("cannot launch uig: \(error.localizedDescription)\n".utf8)) }
-    process.waitUntilExit()
-    return ChildResult(status: process.terminationStatus, output: output.fileHandleForReading.readDataToEndOfFile(), error: error.fileHandleForReading.readDataToEndOfFile())
+    do {
+        let result = try ProcessCapture.run(executable, arguments: arguments)
+        return ChildResult(status: result.status, output: result.output, error: result.error)
+    } catch {
+        return ChildResult(status: 5, output: Data(), error: Data("cannot launch uig: \(error.localizedDescription)\n".utf8))
+    }
 }
 
 private func cleanup() -> Int32 {
@@ -84,11 +79,13 @@ public func runWrapper(type: UIType) -> Never {
     var index = 0
     while index < arguments.count {
         let value = arguments[index]
-        if value == "--timeout" || value == "--start-timeout" {
+        let name = value.hasPrefix("--")
+            ? ArgumentParser.canonicalOption(String(value.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)[0])) : ""
+        if ["timeout", "start-timeout"].contains(name), !value.contains("=") {
             guard index + 1 < arguments.count else { exit(2) }
             triggerOptions += [value, arguments[index + 1]]
             arguments.removeSubrange(index...index + 1)
-        } else if value.hasPrefix("--timeout=") || value.hasPrefix("--start-timeout=") {
+        } else if ["timeout", "start-timeout"].contains(name), value.contains("=") {
             triggerOptions.append(value)
             arguments.remove(at: index)
         } else { index += 1 }

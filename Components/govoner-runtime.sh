@@ -39,15 +39,22 @@ if [[ -z ${GOVONER_BASH_RUNTIME_LOADED:-} ]]; then
     case $state in
       0)
         GOVONER_RAN_STATUS["$uuid"]=setup
+        GOVONER_RAN_LAST["$uuid"]=0
         return 1
         ;;
       1)
         GOVONER_RAN_STATUS["$uuid"]=live
+        GOVONER_RAN_LAST["$uuid"]=0
         return 1
         ;;
       2)
         GOVONER_RAN_STATUS["$uuid"]=post_run
-        if [[ ${GOVONER_RAN_LAST["$uuid"]:-0} == 1 ]]; then
+        if ! run_number=$(command uig --get --uuid "$uuid" --field run_number 2>&1); then
+          GOVONER_RAN_STATUS["$uuid"]=error
+          GOVONER_RAN_ERROR["$uuid"]=$run_number
+          return 2
+        fi
+        if [[ ${GOVONER_RAN_LAST["$uuid"]:-0} == 1 && ${GOVONER_RAN_RUN_NUMBER["$uuid"]:-0} == "$run_number" ]]; then
           return 0
         fi
         if ! payload=$(command uig --dump --uuid "$uuid" 2>&1); then
@@ -57,7 +64,6 @@ if [[ -z ${GOVONER_BASH_RUNTIME_LOADED:-} ]]; then
         fi
         GOVONER_RAN_RESULT_JSON["$uuid"]=$payload
         outcome=$(command uig --get --uuid "$uuid" --field outcome 2>/dev/null) || outcome=unknown
-        run_number=$(command uig --get --uuid "$uuid" --field run_number 2>/dev/null) || run_number=0
         error_json=$(command uig --get --uuid "$uuid" --field error --format json 2>/dev/null) || error_json=null
         GOVONER_RAN_RESULT_TYPE["$uuid"]=$outcome
         GOVONER_RAN_RUN_NUMBER["$uuid"]=$run_number
@@ -102,12 +108,12 @@ if [[ -z ${GOVONER_BASH_RUNTIME_LOADED:-} ]]; then
       printf '%s\n' 'govoner_wait: timeout must be a whole number of seconds' >&2
       return 2
     fi
+    timeout=$((10#$timeout))
     if (( timeout > 0 )); then
       deadline=$((SECONDS + timeout))
     fi
     while :; do
-      govoner_poll "$uuid"
-      result=$?
+      if govoner_poll "$uuid"; then result=0; else result=$?; fi
       if (( result == 0 )); then return 0; fi
       if (( result != 1 )); then return "$result"; fi
       if (( deadline > 0 && SECONDS >= deadline )); then

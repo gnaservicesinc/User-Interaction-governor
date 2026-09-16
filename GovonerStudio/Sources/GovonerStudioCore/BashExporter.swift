@@ -2,6 +2,7 @@ import Foundation
 
 public enum BashExporter {
     public static let defaultRuntimePath = "/usr/local/lib/ugl/govoner-runtime.sh"
+    public static let managedStartMarker = "## Managed By Govoner Studio — changes in this area are replaced on export."
     public static let managedEndMarker = "## End Managed By Govoner Studio Managed Area Do Not Remove"
 
     public static func export(
@@ -18,26 +19,44 @@ public enum BashExporter {
     ) throws -> String {
         guard !script.isEmpty else { return try export(project, runtimePath: runtimePath) }
         guard script.hasPrefix("#!"),
-              let firstLineEnd = script.firstIndex(of: "\n") else {
+              let firstLineEnd = script.firstIndex(where: { $0.isNewline }) else {
             throw StudioValidationError("The selected script must begin with a Bash #! line.")
         }
         let shebang = String(script[..<firstLineEnd])
-        guard shebang.lowercased().contains("bash") else {
+        let interpreter = shebang.dropFirst(2).split(whereSeparator: { $0.isWhitespace }).map(String.init)
+        let executable = interpreter.first.map { URL(fileURLWithPath: $0).lastPathComponent }
+        let usesBash = executable == "bash" || (executable == "env" &&
+            (interpreter.dropFirst().first == "bash" || Array(interpreter.dropFirst().prefix(2)) == ["-S", "bash"]))
+        guard usesBash else {
             throw StudioValidationError("The selected script must use Bash in its #! line.")
         }
 
         let block = try managedBlock(project, runtimePath: runtimePath, shebang: shebang)
         let afterShebang = script.index(after: firstLineEnd)
-        let remainder: Substring
-        if let marker = script.range(of: managedEndMarker, range: afterShebang..<script.endIndex) {
-            var bodyStart = marker.upperBound
-            if bodyStart < script.endIndex, script[bodyStart] == "\r" { bodyStart = script.index(after: bodyStart) }
-            if bodyStart < script.endIndex, script[bodyStart] == "\n" { bodyStart = script.index(after: bodyStart) }
-            remainder = script[bodyStart...]
+        let body = String(script[afterShebang...])
+        let remainder: String
+        if body.hasPrefix(managedStartMarker + "\n") || body.hasPrefix(managedStartMarker + "\r\n") {
+            // Match a complete marker line, including exports with CRLF or no final newline.
+            var cursor = body.startIndex
+            var end: String.Index?
+            while cursor < body.endIndex {
+                let newline = body[cursor...].firstIndex(where: { $0.isNewline }) ?? body.endIndex
+                let line = body[cursor..<newline].trimmingCharacters(in: CharacterSet(charactersIn: "\r"))
+                if line == managedEndMarker {
+                    end = newline < body.endIndex ? body.index(after: newline) : newline
+                    break
+                }
+                if newline == body.endIndex { break }
+                cursor = body.index(after: newline)
+            }
+            guard let end else {
+                throw StudioValidationError("The managed area is missing its end marker; restore it before updating the script.")
+            }
+            remainder = String(body[end...])
         } else {
-            remainder = script[afterShebang...]
+            remainder = body
         }
-        return remainder.isEmpty ? block + "\n" : block + "\n\n" + remainder
+        return block + "\n" + remainder
     }
 
     private static func managedBlock(
@@ -48,7 +67,7 @@ public enum BashExporter {
         guard isShellIdentifier(project.functionName) else {
             throw StudioValidationError("Function names must start with a letter or underscore and contain only letters, numbers, and underscores.")
         }
-        guard runtimePath.first == "/", !runtimePath.contains("\n"), !runtimePath.contains("\r") else {
+        guard runtimePath.first == "/", !runtimePath.contains("\n"), !runtimePath.contains("\r"), !runtimePath.contains("\0") else {
             throw StudioValidationError("The Govoner Bash runtime must use an absolute path.")
         }
         _ = try project.validatedDefinitions()
@@ -57,14 +76,14 @@ public enum BashExporter {
             .replacingOccurrences(of: "\r", with: " ")
             .replacingOccurrences(of: "\n", with: " ")
         var output = shebang + "\n"
-        output += "## Managed By Govoner Studio — changes in this area are replaced on export.\n"
+        output += managedStartMarker + "\n"
         output += "GOVONER_BASH_RUNTIME=\(shellQuote(runtimePath))\n"
         output += "if [[ ! -r $GOVONER_BASH_RUNTIME ]]; then\n"
         output += "  printf '%s\\n' \"Govoner Bash runtime not found: $GOVONER_BASH_RUNTIME\" >&2\n"
         output += "  return 2 2>/dev/null || exit 2\n"
         output += "fi\n"
         output += "# shellcheck source=/dev/null\n"
-        output += "source \"$GOVONER_BASH_RUNTIME\"\n\n"
+        output += "source \"$GOVONER_BASH_RUNTIME\" || { return 2 2>/dev/null || exit 2; }\n\n"
         output += functionComment(project: project, name: commentName)
         output += "\(project.functionName)() {\n"
         output += "  local uuid\n"
@@ -123,10 +142,15 @@ public enum BashExporter {
     }
 
     public static func shellQuote(_ value: String) -> String {
-        "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
+        let quoted = "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
+        // Keep a marker embedded in user text from becoming a delimiter line.
+        return quoted.replacingOccurrences(of: managedEndMarker,
+            with: "## End Managed By ''Govoner Studio Managed Area Do Not Remove")
     }
 
     private static func isShellIdentifier(_ value: String) -> Bool {
+        let reserved: Set<String> = ["if", "then", "else", "elif", "fi", "case", "esac", "for", "select", "while", "until", "do", "done", "in", "function", "time", "coproc", "govoner_poll", "govoner_wait", "govoner_end", "local", "command", "printf", "source", "return", "sleep"]
+        guard !reserved.contains(value) else { return false }
         let bytes = Array(value.utf8)
         guard let first = bytes.first,
               first == 95 || (65...90).contains(first) || (97...122).contains(first) else { return false }

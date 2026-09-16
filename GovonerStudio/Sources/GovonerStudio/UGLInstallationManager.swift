@@ -91,7 +91,7 @@ final class UGLInstallationManager: ObservableObject {
                 component: component,
                 bundledVersion: governorVersion,
                 installedVersion: version,
-                comparison: exists ? compareUGLVersion(installed: version) : .missing
+                comparison: exists ? (version == nil ? .unknown : compareUGLVersion(installed: version)) : .missing
             )
         }
     }
@@ -101,7 +101,7 @@ final class UGLInstallationManager: ObservableObject {
     }
 
     func uninstall() {
-        perform(title: "UGL was removed from the selected location.") { self.uninstallScript() }
+        perform(title: "UGL was removed from the selected location.") { try self.uninstallScript() }
     }
 
     func revealInstallation() {
@@ -143,8 +143,8 @@ final class UGLInstallationManager: ObservableObject {
         )
     }
 
-    private func uninstallScript() -> String {
-        UGLInstallPlan.uninstallScript(location: location)
+    private func uninstallScript() throws -> String {
+        try UGLInstallPlan.uninstallScript(location: location)
     }
 
     private func bundledURL(for component: UGLComponent) -> URL? {
@@ -201,22 +201,14 @@ final class UGLInstallationManager: ObservableObject {
     }
 
     nonisolated private static func capture(_ executable: URL, arguments: [String]) throws -> String {
-        let process = Process()
-        let output = Pipe()
-        let error = Pipe()
-        process.executableURL = executable
-        process.arguments = arguments
-        process.standardOutput = output
-        process.standardError = error
-        try process.run()
-        process.waitUntilExit()
-        let stdout = output.fileHandleForReading.readDataToEndOfFile()
-        let stderr = error.fileHandleForReading.readDataToEndOfFile()
-        guard process.terminationStatus == 0 else {
-            let detail = String(data: stderr, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
-            throw UGLInstallError(detail?.isEmpty == false ? detail! : "The install command exited with status \(process.terminationStatus).")
+        let result = try ProcessCapture.run(executable, arguments: arguments)
+        let outputData = result.output
+        let errorData = result.error
+        guard result.status == 0 else {
+            let detail = String(data: errorData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
+            throw UGLInstallError(detail?.isEmpty == false ? detail! : "The install command exited with status \(result.status).")
         }
-        return String(data: stdout, encoding: .utf8) ?? ""
+        return String(data: outputData, encoding: .utf8) ?? ""
     }
 
 }

@@ -184,6 +184,9 @@ public struct StudioStep: Codable, Equatable, Identifiable, Sendable {
             result.mediaType = mediaType
             result.path = mediaPath
             if mediaType == "image" {
+                guard autoClose.isFinite, autoClose >= 0 else {
+                    throw StudioValidationError("Auto-close seconds must be zero or positive.")
+                }
                 result.autoClose = autoClose > 0 ? autoClose : nil
             } else {
                 result.volume = volume
@@ -191,6 +194,9 @@ public struct StudioStep: Codable, Equatable, Identifiable, Sendable {
                 result.plays = forever ? nil : plays
             }
         case .entry:
+            guard maxLength >= 0 else {
+                throw StudioValidationError("Maximum length must be zero or positive.")
+            }
             result.entryType = entryType
             result.message = message.nilIfEmpty
             result.defaultValue = defaultValue.nilIfEmpty
@@ -261,8 +267,12 @@ public struct StudioStep: Codable, Equatable, Identifiable, Sendable {
 
     private func append(_ arguments: inout [String], _ option: String, _ value: String?) {
         guard let value else { return }
-        arguments.append(option)
-        arguments.append(value)
+        if value.hasPrefix("-") {
+            arguments.append(option + "=" + value)
+        } else {
+            arguments.append(option)
+            arguments.append(value)
+        }
     }
 }
 

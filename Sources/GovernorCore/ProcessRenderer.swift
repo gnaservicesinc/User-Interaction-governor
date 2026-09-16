@@ -76,7 +76,12 @@ public final class ProcessRendererSupervisor: RendererSupervisor, @unchecked Sen
             readerQueue.async { terminated(process.terminationStatus) }
         }
         do { try process.run() }
-        catch { throw StructuredError("BACKEND_UNAVAILABLE", "cannot launch renderer: \(error.localizedDescription)") }
+        catch {
+            // No child owns these ends after a failed launch; release the waiting reader.
+            try? input.fileHandleForWriting.close()
+            try? output.fileHandleForWriting.close()
+            throw StructuredError("BACKEND_UNAVAILABLE", "cannot launch renderer: \(error.localizedDescription)")
+        }
         do {
             var data = try governorJSONEncoder().encode(request)
             data.append(0x0A)

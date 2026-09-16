@@ -464,9 +464,13 @@ private final class FileDialog: NSObject, NSOpenSavePanelDelegate {
     func panel(_ sender: Any, shouldEnable url: URL) -> Bool {
         var isDirectory: ObjCBool = false
         if FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory), isDirectory.boolValue { return true }
-        let filters = step.filters
-        if filters.isEmpty || filters.contains("*") { return true }
-        return filters.contains { pattern in pattern.withCString { fnmatch($0, url.lastPathComponent, FNM_CASEFOLD) == 0 } }
+        return filenameMatchesFilters(url.lastPathComponent, filters: step.filters)
+    }
+
+    func panel(_ sender: Any, validate url: URL) throws {
+        guard filenameMatchesFilters(url.lastPathComponent, filters: step.filters) else {
+            throw StructuredError("INVALID_ARGUMENT", "Choose a filename matching: " + step.filters.joined(separator: ", "))
+        }
     }
 }
 

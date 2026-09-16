@@ -54,6 +54,7 @@ while true {
         if errno == EINTR { continue }
         break
     }
+    _ = fcntl(connection, F_SETFD, FD_CLOEXEC)
     DispatchQueue.global(qos: .userInitiated).async {
         defer { close(connection) }
         guard UnixSocket.peerIsCurrentUser(connection) else { return }
